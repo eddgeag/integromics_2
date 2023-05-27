@@ -85,6 +85,100 @@ extract_univ <- function(x, correc) {
   return(list(media = univ.media,
               pvalores = univ.p_valores))
 }
+funcion_cor <- function(x, vars,titulo) {
+  correlacion.metaboloma <- corr.test(x[, vars],adjust = "BH")
+  r <- correlacion.metaboloma$r
+  p <- correlacion.metaboloma$p
+  
+  p[lower.tri(p)] <- correlacion.metaboloma$p.adj
+  p[upper.tri(p)] <- correlacion.metaboloma$p.adj
+
+  
+  csa <-
+    corrplot::corrplot(
+      r,
+      method = "square",
+      is.corr = T,
+      p.mat = p,
+      insig = "label_sig",
+      cl.cex = 0.7,
+      pch.cex = 0.7,
+      win.asp = 1,
+      tl.cex = 0.6,
+      title = titulo,
+      pch.col = "green"
+    )
+
+
+}
+
+funcion_ass <- function(x,y, vars,titulo) {
+  correlacion.metaboloma <- corr.test(x[, vars],y,adjust = "BH")
+  r <- correlacion.metaboloma$r
+  p <- correlacion.metaboloma$p
+  
+  
+  csa <-
+    corrplot::corrplot(
+      r,
+      method = "square",
+      is.corr = T,
+      p.mat = p,
+      insig = "label_sig",
+      cl.cex = 0.7,
+      pch.cex = 0.7,
+      win.asp = 1,
+      tl.cex = 0.6,
+      title = titulo,
+      pch.col = "green"
+    )
+
+
+}
+vanValen.test2 <- function(X, Y) {
+
+  X.standard <- scale(X)
+  Y.standard <- scale(Y)
+  X.dat <- list(X.standard,Y.standard)
+  X.dat <- lapply(X.dat, as.matrix)
+  medianas <- lapply(X.dat, function(x)
+    apply(x, 2, median))
+  abs.dev.factor <- vector("list", length = length(X.dat))
+  for (j in 1:length(X.dat)) {
+    y <- X.dat[[j]]
+    mediana_x <- medianas[[j]]
+    abs.dev.factor[[j]] <- abs(sweep(y, 2, mediana_x))
+    
+  }
+  
+  norma.euclidea <- function(x)    sqrt(sum(x ^ 2))
+  distancias1 <- apply(abs.dev.factor[[1]], 1, norma.euclidea)
+  distancias2 <- apply(abs.dev.factor[[2]], 1, norma.euclidea)
+  aux.factor <- as.factor(c(rep(1,length(distancias1)),
+                  rep(2,length(distancias2))))
+  (distancias <- reshape2::melt(t(rbind(distancias1,distancias2))))
+  norm.test <-
+    shapiro.test(residuals(lm(distancias1 ~ distancias2)))$p.value
+  vari.test <-
+    leveneTest(distancias$value, distancias$Var2)$`Pr(>F)`[1]
+
+    if (norm.test > 0.05 && vari.test > 0.05) {
+      p.valor <-
+        t.test(distancias$value ~ distancias$Var2, var.equal = T)$p.value
+      
+    } else if (norm.test > 0.05 && vari.test < 0.05) {
+      p.valor <-
+        t.test(distancias$value ~ distancias$Var2, var.equal = F)$p.value
+      
+    } else if (norm.test < 0.05) {
+      p.valor <-
+        wilcox.test(distancias$value ~ distancias$Var2, exact = F)$p.value
+      
+    
+  } 
+  return(p.valor)
+  
+}
 
 datos <- readRDS("../../../datos/preprocesado_05_02_23/novoom.rds")
 obesidad <- datos$comunes$obesidad
@@ -93,11 +187,9 @@ sexo <- datos$comunes$variables_in_bacteria$SEX
 
 ```
 
-
 ```{r}
 modelo <- readRDS("./mofa_4.rds")[[1]]
 ```
-
 
 ```{r}
 p1 <- plot_variance_explained(modelo, max_r2 = 15)
@@ -114,20 +206,24 @@ plot_factor_cor(modelo)
 ```
 
 De estos factores, los que estan correlacionados..
+
 ```{r}
 factores <- get_factors(modelo)[[1]]
-corr.test(factores)$p
+pvalcor <- corr.test(factores)$p
 ```
+
 De estos factores, estan correlacionados a paritr del cuarto factor.
 
 Veamos la reconstruccion con todos los factores y sin el cuarto en adelante
+
 ```{r}
+fac <- 1:5
+
 pesos <- Reduce(rbind, get_weights(modelo, scale = F))
 R <- factores %*% t(pesos)
 p1 <- funcion_pca(R,scle = F,trans = F)[[1]]
-R <- factores[,1:3] %*% t(pesos[,1:3])
+R <- factores[,fac] %*% t(pesos[,fac])
 p2 <- funcion_pca(R,scle = F,trans = F)[[1]]
-
 p1
 p2
 ```
@@ -150,7 +246,7 @@ p5 <- correlate_factors_with_covariates(
     "hsCRP",
     "RatioFreeTE2"
     
-  ),factors = 1:3)
+  ),factors = fac)
 ```
 
 El estradiol esta relacionado con el segundo factor el cual esta relacionado con el metagenoma, y en menor medida el hsCRP
@@ -161,19 +257,17 @@ Miremos la varianza explicada por los features
 pesos.metaboloma <- get_weights(modelo,"metaboloma",scale = F)[[1]]
 plot_variance_explained_per_feature(modelo,
                                     "metaboloma",                                    features=1:nrow(pesos.metaboloma),
-                                    factors = 1:3,
+                                    factors = fac,
                                     split_by_factor = T,
                                     return_data = F
                                     )
 ```
 
-
-
 ```{r}
 pesos.metagenoma <- get_weights(modelo,"metagenoma",scale = F)[[1]]
 exp.met <- plot_variance_explained_per_feature(modelo,
                                     "metagenoma",                                    features=rownames(pesos.metagenoma),
-                                    factors = 1:3,
+                                    factors = fac,
                                     split_by_factor = T,
                                     return_data = T
                                     )
@@ -183,12 +277,10 @@ exp.met <- exp.met[order(exp.met$value),]
 (nombres.exp.met <- sort(unique(as.character(exp.met$feature[exp.met$value>30]))))
 ```
 
-
-
 ```{r}
 plot_variance_explained_per_feature(modelo,
                                     "metagenoma",                                    features=nombres.exp.met,
-                                    factors = 1:4,
+                                    factors = fac,
                                     split_by_factor = T,
                                     return_data = F
                                     )
@@ -199,7 +291,7 @@ Ahora haremos la reconstrucción solamente con estas variables.
 ```{r}
 exp.oli  <- plot_variance_explained_per_feature(modelo,
                                     "metaboloma",                                    features=1:nrow(pesos.metaboloma),
-                                    factors = 1:3,
+                                    factors = fac,
                                     split_by_factor = T,
                                     return_data = T
                                     )
@@ -209,11 +301,12 @@ exp.oli <- exp.oli[order(exp.oli$value),]
 ```
 
 ```{r}
-R <- factores[,1:3] %*% t(pesos[c(nombres.exp.oli,nombres.exp.met),1:3])
+fac<- 1:5
+R <- factores[,fac] %*% t(pesos[c(nombres.exp.oli,nombres.exp.met),fac])
 
 p1 <- funcion_pca(R,scle = T,trans = F)[[1]]
 
-R <- factores[,1:3] %*% t(pesos[,1:3])
+R <- factores[,fac] %*% t(pesos[,fac])
 p2 <- funcion_pca(R,scle = T,trans = F)[[1]]
 
 p2
@@ -223,55 +316,95 @@ p1
 Pero antes de discriminar, debemos de ver los factores
 
 ```{r}
-plot_factor(modelo,factors = c(1:3),color_by = "SEX",dot_size = 3,shape_by = "OBESE")
+plot_factor(modelo,factors = c(fac),color_by = "SEX",dot_size = 3,shape_by = "OBESE")
 ```
 
 ```{r}
-plot_factors(modelo,factors = c(1:3),color_by = "SEX",dot_size = 3,shape_by = "OBESE")
+plot_factors(modelo,factors = c(fac),color_by = "SEX",dot_size = 3,shape_by = "OBESE")
 ```
 
 ```{r}
-plot_factors(modelo,factors = c(1:3),color_by = "GROUP",shape_by = "OBESE",dot_size = 3)
+plot_factors(modelo,factors = c(fac),color_by = "GROUP",shape_by = "OBESE",dot_size = 3)
 ```
 
 ```{r}
 
-plot_top_weights(modelo)
+plot_top_weights(modelo,view = "metaboloma",factors = 1,nfeatures = 37,scale = T)
 ```
+
 ```{r}
 # plot_top_weights(modelo,2,factors=2:3)
 ```
 
 Ahora nos podemos quedar con aquellos pesos mayores a 0.05
-```{r}
-pesos <- Reduce(rbind, get_weights(modelo, scale = T))
-
-pesos3 <- pesos[,1:3]
-
-pesosim <- rownames(pesos3)[apply(pesos3,1,function(x) any(x>0.2))]
-nombres <- (c(nombres.exp.oli,nombres.exp.met))
-factores <- get_factors(modelo,scale = T)[[1]]
-pesos <- as.matrix(Reduce(rbind, get_weights(modelo, scale = F)))
-R <- factores %*% t(pesos)
-p1 <- funcion_pca(R,scle = T,trans = F)[[1]]
-R <- factores[,1:3] %*% t(pesos[nombres,1:3])
-p2 <- funcion_pca(R,scle = T,trans = F)[[1]]
-
-p1
-p2
-```
-
 
 ```{r}
-plot_data_heatmap(modelo,factor = 1,features = 10)
+plot_top_weights(modelo,view = "metaboloma",factors = 1,nfeatures = 37,scale = T)
+
+pesos.pesos.m <- plot_top_weights(modelo,view = "metaboloma",factors = 1,nfeatures = 37,scale = T)
+
+feat.met <- as.character((pesos.pesos.m$data$feature)[pesos.pesos.m$data$value>0.3])
+
 ```
 
 ```{r}
-plot_data_heatmap(modelo,factor = 2,features = 10)
+plot_top_weights(modelo,view = "metagenoma",factors = 2,nfeatures = 20,scale = T)
+
+plot_top_weights(modelo,view = "metagenoma",factors = 4,nfeatures = 20,scale = T)
+
+plot_top_weights(modelo,view = "metagenoma",factors = 5,nfeatures = 20,scale = T)
+
+
+pesos.pesos.gf2 <- plot_top_weights(modelo,view = "metagenoma",factors = 2,nfeatures = Inf,scale = T)
+
+pesos.pesos.gf4 <- plot_top_weights(modelo,view = "metagenoma",factors = 4,nfeatures = Inf,scale = T)
+pesos.pesos.gf5 <- plot_top_weights(modelo,view = "metagenoma",factors = 5,nfeatures = Inf,scale = T)
+
+feat.g2 <- (pesos.pesos.gf2$data$feature)[pesos.pesos.gf2$data$value>0.6]
+feat.g4 <- (pesos.pesos.gf4$data$feature)[pesos.pesos.gf4$data$value>0.6]
+feat.g5 <- (pesos.pesos.gf5$data$feature)[pesos.pesos.gf5$data$value>0.6]
+
+feat.metagenoma <- as.character(unique(c(feat.g2,feat.g4,feat.g5)))
+
+```
+
+solo el metagenoma
+
+```{r}
+R.metagenoma <- factores[,c(2,4,5)] %*% t(pesos[feat.metagenoma,c(2,4,5)])
+
+funcion_pca(R.metagenoma,scle = T,trans = F)[[1]]
+
+```
+
+solo el metaboloma
+
+```{r}
+R.metaboloma <- factores[,1] %*% t(pesos[feat.met,c(1)])
+
+funcion_pca(R.metaboloma,scle = T,trans = F)[[1]]
+
+```
+
+todo
+
+```{r}
+R <- factores[,fac] %*% t(pesos[c(feat.met,feat.metagenoma),fac])
+
+funcion_pca(R,scle = F,trans = F)[[1]]
+```
+
+```{r}
+plot_data_heatmap(modelo,factor = 1,features = 10,denoise = T)
+```
+
+```{r}
+plot_data_heatmap(modelo,factor = 5,features = 20,view = "metagenoma",denoise =   T,fontsize=6)
 
 ```
 
 Ahora vamos a ver las diferencias entre medias
+
 ```{r}
 library(ALDEx2)
 source("./analisis_univariante_e_interpretacion.R")
@@ -285,7 +418,7 @@ transformacion <- function(X) {
 
 metaboloma <- transformacion((datos$comunes$metaboloma))
 metagenoma <- scale(t(mean_aldex(datos$comunes$microbiota$genero)))
-
+nombres <- c(feat.met,feat.metagenoma)
 datos_raw <- cbind(metaboloma,metagenoma)
 
 analisis.univ<- extract_univ(datos_raw[,nombres],correc = 2)
@@ -314,7 +447,6 @@ corrplot::corrplot(as.matrix(analisis.univ$media),method = "square",is.corr = F,
 
 
 ```
-
 
 ```{r}
 
@@ -348,7 +480,7 @@ analisis.univ <- extract_univ(R,correc = 3)
 
 pvalores <- analisis.univ$pvalores
 pvaloresm1 <- pvalores[,-1]
-w <- which(apply(pvaloresm1,1,function(x) any(x<0.05)))
+w <- which(apply(pvaloresm1,1,function(x) any(x<0.01)))
 nombres.micro <- rownames(pvalores)[w]
 nombres2 <- c(nombres.micro,nombres.exp.oli)
 
@@ -364,7 +496,6 @@ corrplot::corrplot(as.matrix(analisis.univ$media),method = "square",is.corr = F,
 funcion_pca(R,scle =T ,trans = F)
 
 ```
-
 
 ```{r}
 clinicas <- scale(datos$comunes$variables_in_bacteria[,6:16])
@@ -390,7 +521,6 @@ corrplot::corrplot(r,method = "square",is.corr = F,p.mat = p,insig = "label_sig"
                    tl.cex = 0.6)
 
 ```
-
 
 ```{r}
 clinicas <- scale(datos$comunes$variables_in_bacteria[,6:16])
@@ -440,9 +570,67 @@ corrplot::corrplot(r,method = "square",is.corr = F,p.mat = p,insig = "label_sig"
                    tl.cex = 0.6)
 ```
 
+```{r}
+library(tidygraph)
+library(igraph)
+library(ggraph)
+correlacion.metaboloma <- corr.test(cbind(parte.met,clinicas))$r
+nombres.met <- colnames(correlacion.metaboloma)[grep("mean",colnames(correlacion.metaboloma))]
+nombres.clinicas <- colnames(correlacion.metaboloma)[colnames(correlacion.metaboloma) %in% colnames(clinicas)]
+csa <- c(nombres.met,nombres.clinicas)
+nombres.metagenoma<- colnames(correlacion.metaboloma)[!colnames(correlacion.metaboloma) %in% colnames(clinicas)]
 
+
+correlacion.metaboloma[nombres.met,nombres.met]<- 0
+correlacion.metaboloma[nombres.clinicas,nombres.clinicas]<- 0
+correlacion.metaboloma[nombres.metagenoma,nombres.metagenoma]<- 0
+
+
+
+network <-  graph_from_adjacency_matrix(correlacion.metaboloma,weighted = T)
+network <- delete.edges(network, E(network)[ abs(weight) < 0.5])
+isolated_nodes <- which(degree(network) == 0)  # Obtener índices de nodos no conectados
+network <- delete.vertices(network, v = isolated_nodes)  # Eliminar nodos no conectados
+
+grafo <- as_tbl_graph(network)
+
+ggraph(grafo, layout = 'linear',circular=T) + 
+  geom_edge_link(aes(width=weight,alpha=0.7,edge_colour=ifelse(weight>0,"blue","red"))) +  geom_node_point(color = "black", size = 4, show.legend = FALSE) +
+  geom_node_text(aes(label = name),  colour = 'black', size=5,
+                  show.legend = FALSE, family = "serif",repel = T) +
+  theme_graph(background = "white") + theme(legend.position = "none") +coord_fixed()
+```
 
 ```{r}
+library(networkD3)
+library(dplyr)
+library(tidyr)
+incidence <- corr.test(parte.met,clinicas)$r
+incidence[abs(incidence)<0.2]<-0
+links <- incidence %>% 
+  as.data.frame() %>% 
+  tibble::rownames_to_column(var="source") %>% 
+  gather(key="target", value="value", -1) %>%
+  filter(value != 0)
+nodes <- data.frame(
+  name=c(as.character(links$source), as.character(links$target)) %>% 
+    unique()
+  )
+links$IDsource <- match(links$source, nodes$name)-1 
+links$IDtarget <- match(links$target, nodes$name)-1
+p <- sankeyNetwork(Links = links, Nodes = nodes,
+                     Source = "IDsource", Target = "IDtarget",
+                     Value = "value", NodeID = "name", 
+                     sinksRight=FALSE)
+
+p
+
+```
+
+```{r}
+
+pesos
+
 correlacion.metaboloma <- corr.test(datos_raw[,nombres2])
 r <- correlacion.metaboloma$r
 p <- correlacion.metaboloma$p
@@ -465,22 +653,71 @@ corrplot::corrplot(r,method = "square",is.corr = T,p.mat = p,insig = "label_sig"
                    win.asp = 1,
                    tl.cex = 0.6,pch.col = "green")
 ```
+
 Veamos por obesidad
 
 ```{r}
-raw.pcos <- datos_raw[grupo=="PCOS",]
-raw.female <- datos_raw[grupo=="Female",]
+feat.met <- as.character((pesos.pesos.m$data$feature)[pesos.pesos.m$data$value>0.6])
+feat.g2 <- (pesos.pesos.gf2$data$feature)[pesos.pesos.gf2$data$value>0.8]
+feat.g4 <- (pesos.pesos.gf4$data$feature)[pesos.pesos.gf4$data$value>0.8]
+feat.g5 <- (pesos.pesos.gf5$data$feature)[pesos.pesos.gf5$data$value>0.8]
 
-funcion_cor(raw.pcos,nombres2,"PCOS")
-funcion_cor(raw.female,nombres2,"Female")
+feat.metagenoma <- as.character(unique(c(feat.g2,feat.g4,feat.g5)))
 
-raw.pcos <- R[grupo=="PCOS",]
-raw.female <- R[grupo=="Female",]
 
-funcion_cor(raw.pcos,nombres2,"PCOS")
-funcion_cor(raw.female,nombres2,"Female")
+nombres2 <- c(feat.met,feat.metagenoma)
+# raw.pcos <- datos_raw[grupo=="PCOS",]
+# raw.female <- datos_raw[grupo=="Female",]
+# 
+# funcion_cor(raw.pcos,nombres2,"PCOS")
+# funcion_cor(raw.female,nombres2,"Female")
+# 
+# raw.pcos <- R[grupo=="PCOS",]
+# raw.female <- R[grupo=="Female",]
+# 
+# funcion_cor(raw.pcos,nombres2,"PCOS")
+# funcion_cor(raw.female,nombres2,"Female")
+
+R <- factores[grupo=="PCOS",fac] %*% t(pesos[nombres2,fac])
+
+
+incidence <- corr.test(R)$r
+incidence[abs(incidence)<0.4]<-0
+
+incidence[grep("mean",colnames(incidence)),grep("mean",colnames(incidence))] <-0
+incidence[-grep("mean",colnames(incidence)),-grep("mean",colnames(incidence))] <-0
+
+incidence <- incidence[grep("mean",colnames(incidence)),-grep("mean",colnames(incidence))]
+
+links <- incidence %>%
+  as.data.frame() %>%
+  tibble::rownames_to_column(var="source") %>%
+  gather(key="target", value="value", -1) %>%
+  filter(value != 0)
+nodes <- data.frame(
+  name=c(as.character(links$source), as.character(links$target)) %>%
+    unique()
+  )
+
+links$IDsource <- match(links$source, nodes$name)-1
+links$IDtarget <- match(links$target, nodes$name)-1
+
+links$group <- as.factor(ifelse(links$value>0,"blue","red"))
+my_color <- 'd3.scaleOrdinal() .domain(["blue", "red"]) .range(["blue", "red"])'
+
+p <- sankeyNetwork(Links = links, Nodes = nodes,
+                     Source = "IDsource", Target = "IDtarget",
+                     Value = "value", NodeID = "name",
+                     sinksRight=F,fontSize = 15,LinkGroup = "group",colourScale = my_color)
+
+p
 
 ```
+
+```{r}
+//
+```
+
 
 ```{r}
 raw.pcos <- datos_raw[grupo=="Male",]
@@ -497,29 +734,7 @@ funcion_cor(raw.female,nombres2,"Female")
 ```
 
 ```{r}
-funcion_cor <- function(x, vars,titulo) {
-  correlacion.metaboloma <- corr.test(x[, nombres2])
-  r <- correlacion.metaboloma$r
-  p <- correlacion.metaboloma$p
-  
-  
-  csa <-
-    corrplot::corrplot(
-      r,
-      method = "square",
-      is.corr = T,
-      p.mat = p,
-      insig = "label_sig",
-      cl.cex = 0.7,
-      pch.cex = 0.7,
-      win.asp = 1,
-      tl.cex = 0.6,
-      title = titulo,
-      pch.col = "green"
-    )
 
-
-}
 
 raw.pcos <- datos_raw[grupo=="Male",]
 raw.female <- datos_raw[grupo=="PCOS",]
@@ -534,7 +749,6 @@ funcion_cor(raw.pcos,nombres2,"Male")
 funcion_cor(raw.female,nombres2,"PCOS")
 ```
 
-
 ```{r}
 raw.obese <- datos_raw[obesidad=="Obese",]
 raw.Noobese <- datos_raw[obesidad=="No Obese",]
@@ -546,36 +760,11 @@ funcion_cor(raw.obese,nombres2,"Obese")
 raw.obese <- R[obesidad=="Obese",]
 raw.Noobese <- R[obesidad=="No Obese",]
 
-funcion_cor <- function(x, vars,titulo) {
-  correlacion.metaboloma <- corr.test(x[, nombres2])
-  r <- correlacion.metaboloma$r
-  p <- correlacion.metaboloma$p
-  p[lower.tri(p)] <- p[upper.tri(p)]
-  
-  csa <-
-    corrplot::corrplot(
-      r,
-      method = "square",
-      is.corr = T,
-      p.mat = p,
-      insig = "label_sig",
-      cl.cex = 0.7,
-      pch.cex = 0.7,
-      win.asp = 1,
-      tl.cex = 0.6,
-      title = titulo,
-      pch.col = "green"
-    )
-
-
-}
 
 funcion_cor(raw.Noobese,nombres2,"No Obese")
 funcion_cor(raw.obese,nombres2,"Obese")
 
 ```
-
-
 
 ```{r}
 source("./manova_vanvalen.R")
@@ -583,7 +772,7 @@ source("./manova_vanvalen.R")
 
 ```{r}
 
-R <- factores[,1:3] %*% t(pesos[nombres2,1:3])
+R <- factores[,1:3] %*% t([nombres2,1:3])
 
 vanValen.test(R,obesidad)
 vanValen.test(R,interaction(grupo,obesidad))
@@ -638,5 +827,58 @@ corrplot::corrplot(r,method = "square",is.corr = F,p.mat = p,insig = "label_sig"
                    tl.cex = 0.6)
 ```
 
+```{r}
+parte.met.obese  <- factores[obesidad=="Obese",1:5] %*% t(pesos[nombres2,1:5])
+parte.met.noobese  <- factores[obesidad=="No Obese",1:5] %*% t(pesos[nombres2,1:5])
+
+clin.obese <- clinicas[obesidad=="Obese",]
+clin.NoObese <- clinicas[obesidad=="No Obese",]
+funcion_ass(parte.met.obese,clin.obese,vars = nombres2,titulo = "obesesos")
+
+funcion_ass(parte.met.noobese,(clin.NoObese),vars = nombres2,titulo = "obesesos")
+```
+
+```{r}
+parte.met.obese  <- factores[grupo=="Female",1:5] %*% t(pesos[nombres2,1:5])
+parte.met.noobese  <- factores[grupo=="PCOS",1:5] %*% t(pesos[nombres2,1:5])
+
+clin.obese <- clinicas[grupo=="Female",]
+clin.NoObese <- clinicas[grupo=="PCOS",]
+funcion_ass(parte.met.obese,clin.obese,vars = nombres2,titulo = "Female")
+
+funcion_ass(parte.met.noobese,(clin.NoObese),vars = nombres2,titulo = "PCOS")
+```
+
+```{r}
+parte.met.obese  <- factores[grupo=="Female",1:5] %*% t(pesos[nombres2,1:5])
+parte.met.noobese  <- factores[grupo=="Male",1:5] %*% t(pesos[nombres2,1:5])
+
+clin.obese <- clinicas[grupo=="Female",]
+clin.NoObese <- clinicas[grupo=="Male",]
+funcion_ass(parte.met.obese,clin.obese,vars = nombres2,titulo = "Female")
+
+funcion_ass(parte.met.noobese,(clin.NoObese),vars = nombres2,titulo = "Male")
+```
+
+```{r}
+R <- as.data.frame(factores[,1:3] %*% t(pesos[nombres2,1:3]))
+split.obesidad <- base::split(R,obesidad)
+split.grupo <- base::split(R,grupo)
+clinicas <- as.data.frame(clinicas)
+clinicas.obesidad <- base::split(clinicas,obesidad)
+clinicas.grupo <- base::split(clinicas,grupo)
+
+cov.ob <- scale(cov(split.grupo$Female,clinicas.grupo$Female))
+cov.noob <- scale(cov(split.grupo$PCOS,clinicas.grupo$PCOS))
+
+covv.ob <- reshape2::melt(cov.ob)
+covv.noob <- reshape2::melt(cov.noob)
+
+csa <- data.frame(ob=covv.ob,noob=covv.noob)
+csa.melt <- reshape2::melt(csa)
+ggplot(csa.melt,aes(x=value,col=variable))+geom_density()
+ggplot(csa.melt,aes(x=value,col=variable))+geom_boxplot()
+vanValen.test2(cov.ob,cov.noob)
+```
 
 Existe el learning manifold, pero no nos sirve de mucho
