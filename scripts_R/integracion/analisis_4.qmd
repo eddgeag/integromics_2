@@ -10,6 +10,13 @@ library(dplyr)
 library(ggplot2)
 library(ggpubr)
 library(psych)
+library(ALDEx2)
+library(tidyr)
+library(networkD3)
+library(tidygraph)
+library(igraph)
+library(ggraph)
+source("./analisis_univariante_e_interpretacion.R")
 funcion_pca <- function(X, scle, trans) {
   if (!trans) {
     pca <- prcomp(X, scale. = scle)
@@ -228,7 +235,7 @@ p1
 p2
 ```
 
-Nos quedamos con los 3 primeros factores.
+Nos quedamos con los 3 a 5  primeros factores.
 
 Veamos la correlacion de los factores con las covariables
 
@@ -264,23 +271,33 @@ plot_variance_explained_per_feature(modelo,
 ```
 
 ```{r}
+var.exp.met <- plot_variance_explained_per_feature(modelo,
+                                    "metaboloma",                                    features=1:nrow(pesos.metaboloma),
+                                    factors = 1,
+                                    split_by_factor = T,
+                                    return_data = T
+                                    )
+feat.met.exp <- var.exp.met$feature[var.exp.met$value>30]
+```
+
+```{r}
 pesos.metagenoma <- get_weights(modelo,"metagenoma",scale = F)[[1]]
 exp.met <- plot_variance_explained_per_feature(modelo,
                                     "metagenoma",                                    features=rownames(pesos.metagenoma),
-                                    factors = fac,
+                                    factors = 2:5,
                                     split_by_factor = T,
                                     return_data = T
                                     )
 
 exp.met <- exp.met[order(exp.met$value),]
 
-(nombres.exp.met <- sort(unique(as.character(exp.met$feature[exp.met$value>30]))))
+(nombres.exp.met <- sort(unique(as.character(exp.met$feature[exp.met$value>40]))))
 ```
 
 ```{r}
 plot_variance_explained_per_feature(modelo,
                                     "metagenoma",                                    features=nombres.exp.met,
-                                    factors = fac,
+                                    factors = 2:5,
                                     split_by_factor = T,
                                     return_data = F
                                     )
@@ -289,20 +306,12 @@ plot_variance_explained_per_feature(modelo,
 Ahora haremos la reconstrucción solamente con estas variables.
 
 ```{r}
-exp.oli  <- plot_variance_explained_per_feature(modelo,
-                                    "metaboloma",                                    features=1:nrow(pesos.metaboloma),
-                                    factors = fac,
-                                    split_by_factor = T,
-                                    return_data = T
-                                    )
-exp.oli <- exp.oli[order(exp.oli$value),]
-
-(nombres.exp.oli <- sort(unique(as.character(exp.oli$feature[exp.oli$value>30]))))
+(nombres_exp_var <- c(as.character(feat.met.exp),nombres.exp.met))
 ```
 
 ```{r}
 fac<- 1:5
-R <- factores[,fac] %*% t(pesos[c(nombres.exp.oli,nombres.exp.met),fac])
+R <- factores[,fac] %*% t(pesos[nombres_exp_var,fac])
 
 p1 <- funcion_pca(R,scle = T,trans = F)[[1]]
 
@@ -324,7 +333,7 @@ plot_factors(modelo,factors = c(fac),color_by = "SEX",dot_size = 3,shape_by = "O
 ```
 
 ```{r}
-plot_factors(modelo,factors = c(fac),color_by = "GROUP",shape_by = "OBESE",dot_size = 3)
+plot_factors(modelo,factors = c(1:5),color_by = "GROUP",shape_by = "OBESE",dot_size = 3)
 ```
 
 ```{r}
@@ -343,7 +352,7 @@ plot_top_weights(modelo,view = "metaboloma",factors = 1,nfeatures = 37,scale = T
 
 pesos.pesos.m <- plot_top_weights(modelo,view = "metaboloma",factors = 1,nfeatures = 37,scale = T)
 
-feat.met <- as.character((pesos.pesos.m$data$feature)[pesos.pesos.m$data$value>0.3])
+feat.met <- as.character((pesos.pesos.m$data$feature)[pesos.pesos.m$data$value>0.6])
 
 ```
 
@@ -368,103 +377,37 @@ feat.metagenoma <- as.character(unique(c(feat.g2,feat.g4,feat.g5)))
 
 ```
 
-solo el metagenoma
-
 ```{r}
-R.metagenoma <- factores[,c(2,4,5)] %*% t(pesos[feat.metagenoma,c(2,4,5)])
 
-funcion_pca(R.metagenoma,scle = T,trans = F)[[1]]
+pesos.nombres <- c(feat.met,feat.metagenoma)
+vars.g <- intersect(feat.metagenoma,nombres_exp_var)
+vars.m <- intersect(feat.met,nombres_exp_var)
 
-```
-
-solo el metaboloma
-
-```{r}
-R.metaboloma <- factores[,1] %*% t(pesos[feat.met,c(1)])
-
-funcion_pca(R.metaboloma,scle = T,trans = F)[[1]]
-
+nombres2 <- intersect(pesos.nombres,nombres_exp_var)
 ```
 
 todo
 
 ```{r}
-R <- factores[,fac] %*% t(pesos[c(feat.met,feat.metagenoma),fac])
+fac<- 1:5
+R <- factores[,fac] %*% t(pesos[nombres2,fac])
 
 funcion_pca(R,scle = F,trans = F)[[1]]
 ```
 
 ```{r}
-plot_data_heatmap(modelo,factor = 1,features = 10,denoise = T)
+plot_data_heatmap(modelo,factor = 1,features =vars.m ,denoise = T)
 ```
 
 ```{r}
-plot_data_heatmap(modelo,factor = 5,features = 20,view = "metagenoma",denoise =   T,fontsize=6)
-
-```
-
-Ahora vamos a ver las diferencias entre medias
-
-```{r}
-library(ALDEx2)
-source("./analisis_univariante_e_interpretacion.R")
-
-transformacion <- function(X) {
-  return((t(log2(X / colSums(
-    X
-  )))))
-}
-
-
-metaboloma <- transformacion((datos$comunes$metaboloma))
-metagenoma <- scale(t(mean_aldex(datos$comunes$microbiota$genero)))
-nombres <- c(feat.met,feat.metagenoma)
-datos_raw <- cbind(metaboloma,metagenoma)
-
-analisis.univ<- extract_univ(datos_raw[,nombres],correc = 2)
-
-corrplot::corrplot(as.matrix(analisis.univ$media),method = "square",is.corr = F,p.mat = as.matrix(analisis.univ$pvalores),insig = "label_sig",cl.cex = 0.7,
-                   pch.cex = 0.7,
-                   win.asp = 1,
-                   tl.cex = 0.6)
-R <- factores %*% t(pesos[nombres,])
-
-analisis.univ<- extract_univ(R,correc = 2)
-
-corrplot::corrplot(as.matrix(analisis.univ$media),method = "square",is.corr = F,p.mat = as.matrix(analisis.univ$pvalores),insig = "label_sig",cl.cex = 0.7,
-                   pch.cex = 0.7,
-                   win.asp = 1,
-                   tl.cex = 0.6)
-
-R <- factores[,1:3] %*% t(pesos[nombres,1:3])
-
-analisis.univ<- extract_univ(R,correc = 2)
-
-corrplot::corrplot(as.matrix(analisis.univ$media),method = "square",is.corr = F,p.mat = as.matrix(analisis.univ$pvalores),insig = "label_sig",cl.cex = 0.7,
-                   pch.cex = 0.7,
-                   win.asp = 1,
-                   tl.cex = 0.6)
-
-
-```
-
-```{r}
-
-miseq <- split(1:213, ceiling(1:213 / 37))
-analisis.univ <- extract_univ(metagenoma,correc = 2)
-p <-lapply(miseq, function(x) corrplot::corrplot(as.matrix(analisis.univ$media)[x,],method = "square",is.corr = F,p.mat = as.matrix(analisis.univ$pvalores)[x,],insig = "label_sig",cl.cex = 0.7,
-                   pch.cex = 0.7,
-                   win.asp = 1,
-                   tl.cex = 0.6))
-
-
+plot_data_heatmap(modelo,factor = 5,features = vars.g,view = "metagenoma",denoise =   T,fontsize=6)
 
 ```
 
 ```{r}
 miseq <- split(1:213, ceiling(1:213 / 37))
-
-R <- factores[,2:3] %*% t(pesos.metagenoma[,2:3])
+fac<-1:5
+R <- factores[,fac] %*% t(pesos.metagenoma[,fac])
 
 analisis.univ <- extract_univ(R,correc = 2)
 p <-lapply(miseq, function(x) corrplot::corrplot(as.matrix(analisis.univ$media)[x,],method = "square",is.corr = F,p.mat = as.matrix(analisis.univ$pvalores)[x,],insig = "label_sig",cl.cex = 0.7,
@@ -475,42 +418,100 @@ p <-lapply(miseq, function(x) corrplot::corrplot(as.matrix(analisis.univ$media)[
 ```
 
 ```{r}
-R <- factores[,1:2] %*% t(pesos.metagenoma[,1:2])
-analisis.univ <- extract_univ(R,correc = 3)
-
 pvalores <- analisis.univ$pvalores
 pvaloresm1 <- pvalores[,-1]
 w <- which(apply(pvaloresm1,1,function(x) any(x<0.01)))
-nombres.micro <- rownames(pvalores)[w]
-nombres2 <- c(nombres.micro,nombres.exp.oli)
+nombres.media.g <- rownames(pesos.metagenoma)[w]
 
-R <- factores[,1:2] %*% t(pesos[nombres2,1:2])
+```
+
+```{r}
+miseq <- split(1:37, ceiling(1:37 / 37))
+fac<-1:5
+R <- factores[,fac] %*% t(pesos.metaboloma[,fac])
 
 analisis.univ <- extract_univ(R,correc = 3)
+p <-lapply(miseq, function(x) corrplot::corrplot(as.matrix(analisis.univ$media)[x,],method = "square",is.corr = F,p.mat = as.matrix(analisis.univ$pvalores)[x,],insig = "label_sig",cl.cex = 0.7,
+                   pch.cex = 0.7,
+                   win.asp = 1,
+                   tl.cex = 0.6))
+```
+
+```{r}
+pvalores <- analisis.univ$pvalores
+pvaloresm1 <- pvalores[,-1]
+w <- which(apply(pvaloresm1,1,function(x) any(x<0.005)))
+nombres.medias.m <- rownames(pesos.metaboloma)[w]
+
+```
+
+```{r}
+nombres.medias.m <- rownames(pesos.metaboloma)[w]
+nombres3 <- c(nombres.media.g,nombres.medias.m)
+```
+
+```{r}
+fac<- 1:5
+R <- factores[,fac] %*% t(pesos[nombres3,fac])
+funcion_pca(R,scle = T,trans = F)
+```
+
+Ahora vamos a ver las diferencias entre medias en el total
+
+```{r}
+
+
+transformacion <- function(X) {
+  return((t(log2(X / colSums(
+    X
+  )))))
+}
+
+
+metaboloma <- transformacion((datos$comunes$metaboloma))
+metagenoma <- scale(t(mean_aldex(datos$comunes$microbiota$genero)))
+datos_raw <- cbind(metaboloma,metagenoma)
+nombres3 <- unique(nombres3)
+analisis.univ<- extract_univ(datos_raw[,nombres3],correc = 2)
 
 corrplot::corrplot(as.matrix(analisis.univ$media),method = "square",is.corr = F,p.mat = as.matrix(analisis.univ$pvalores),insig = "label_sig",cl.cex = 0.7,
                    pch.cex = 0.7,
                    win.asp = 1,
-                   tl.cex = 0.6)
+                   tl.cex = 0.6,
+                   title="raw_data",
+                   mar=c(0,0,1,0)
+                   )
+R <- factores[,fac] %*% t(pesos[nombres3,fac])
 
-funcion_pca(R,scle =T ,trans = F)
+analisis.univ<- extract_univ(R,correc = 2)
+
+corrplot::corrplot(as.matrix(analisis.univ$media),method = "square",is.corr = F,p.mat = as.matrix(analisis.univ$pvalores),insig = "label_sig",cl.cex = 0.7,
+                   pch.cex = 0.7,
+                   win.asp = 1,
+                   tl.cex =0.6 ,
+                   title="R",
+                   mar=c(0,0,1,0))
 
 ```
+
+Ahora la correlacion con las covariables con le metaboloma
 
 ```{r}
 clinicas <- scale(datos$comunes$variables_in_bacteria[,6:16])
 
 
-correlacion.metaboloma <- corr.test(metaboloma[,nombres.exp.oli],clinicas)
+correlacion.metaboloma <- corr.test(metaboloma[,nombres.medias.m],clinicas)
 r <- correlacion.metaboloma$r
 p <- correlacion.metaboloma$p
 corrplot::corrplot(r,method = "square",is.corr = F,p.mat = p,insig = "label_sig",cl.cex = 0.7,
                    pch.cex = 0.7,
                    win.asp = 1,
-                   tl.cex = 0.6)
+                   tl.cex = 0.6,
+                   title="raw_data",
+                   mar=c(0,0,1,0))
 
 clinicas <- scale(datos$comunes$variables_in_bacteria[,6:16])
-parte.met <- factores[,1:3] %*% t(pesos[nombres.exp.oli,1:3])
+parte.met <- factores[,1:3] %*% t(pesos[nombres.medias.m,1:3])
 
 correlacion.metaboloma <- corr.test(parte.met,clinicas)
 r <- correlacion.metaboloma$r
@@ -518,21 +519,24 @@ p <- correlacion.metaboloma$p
 corrplot::corrplot(r,method = "square",is.corr = F,p.mat = p,insig = "label_sig",cl.cex = 0.7,
                    pch.cex = 0.7,
                    win.asp = 1,
-                   tl.cex = 0.6)
+                   tl.cex = 0.6,    title="R",
+                   mar=c(0,0,1,0))
 
 ```
+
+Ahora con el metagenoma
 
 ```{r}
 clinicas <- scale(datos$comunes$variables_in_bacteria[,6:16])
 
 
-correlacion.metagenoma <- corr.test(metagenoma[,nombres.exp.met],clinicas)
+correlacion.metagenoma <- corr.test(metagenoma[,nombres.media.g],clinicas)
 r <- correlacion.metagenoma$r
 p <- correlacion.metagenoma$p
 corrplot::corrplot(r,method = "square",is.corr = F,p.mat = p,insig = "label_sig",cl.cex = 0.7,
                    pch.cex = 0.7,
                    win.asp = 1,
-                   tl.cex = 0.6)
+                   tl.cex = 0.6,title = "raw data",mar = c(0,0,1,0))
 
 clinicas <- scale(datos$comunes$variables_in_bacteria[,6:16])
 parte.met <- factores[,1:3] %*% t(pesos[nombres.exp.met,1:3])
@@ -543,23 +547,23 @@ p <- correlacion.metaboloma$p
 corrplot::corrplot(r,method = "square",is.corr = F,p.mat = p,insig = "label_sig",cl.cex = 0.7,
                    pch.cex = 0.7,
                    win.asp = 1,
-                   tl.cex = 0.6)
+                   tl.cex = 0.6,title = "R",mar = c(0,0,1,0))
 ```
 
 ```{r}
 clinicas <- scale(datos$comunes$variables_in_bacteria[,6:16])
 
 
-correlacion.metaboloma <- corr.test(datos_raw[,nombres2],clinicas)
+correlacion.metaboloma <- corr.test(datos_raw[,nombres3],clinicas)
 r <- correlacion.metaboloma$r
 p <- correlacion.metaboloma$p
 corrplot::corrplot(r,method = "square",is.corr = F,p.mat = p,insig = "label_sig",cl.cex = 0.7,
                    pch.cex = 0.7,
                    win.asp = 1,
-                   tl.cex = 0.6)
+                   tl.cex = 0.6,title="raw_data",mar = c(0,0,1,0))
 
 clinicas <- scale(datos$comunes$variables_in_bacteria[,6:16])
-parte.met <- factores[,1:5] %*% t(pesos[nombres2,1:5])
+parte.met <- factores[,1:5] %*% t(pesos[nombres3,1:5])
 
 correlacion.metaboloma <- corr.test(parte.met,clinicas)
 r <- correlacion.metaboloma$r
@@ -567,18 +571,31 @@ p <- correlacion.metaboloma$p
 corrplot::corrplot(r,method = "square",is.corr = F,p.mat = p,insig = "label_sig",cl.cex = 0.7,
                    pch.cex = 0.7,
                    win.asp = 1,
-                   tl.cex = 0.6)
+                   tl.cex = 0.6,title="R",mar = c(0,0,1,0))
 ```
 
+ahora veremos el PCA con las clincias
+
 ```{r}
-library(tidygraph)
-library(igraph)
-library(ggraph)
+
+R <- factores[,c(1,5)] %*% t(pesos[nombres3,c(1,5)])
+
+r.clinicas <- cbind(R,clinicas)
+
+funcion_pca(r.clinicas,scle = F,trans = T)
+
+```
+
+## correlacion R clinicas
+
+```{r}
+
+cutoff <- 0.8
 correlacion.metaboloma <- corr.test(cbind(parte.met,clinicas))$r
 nombres.met <- colnames(correlacion.metaboloma)[grep("mean",colnames(correlacion.metaboloma))]
 nombres.clinicas <- colnames(correlacion.metaboloma)[colnames(correlacion.metaboloma) %in% colnames(clinicas)]
-csa <- c(nombres.met,nombres.clinicas)
-nombres.metagenoma<- colnames(correlacion.metaboloma)[!colnames(correlacion.metaboloma) %in% colnames(clinicas)]
+metclinicas <- c(nombres.met,nombres.clinicas)
+nombres.metagenoma<- colnames(correlacion.metaboloma)[!colnames(correlacion.metaboloma) %in% (metclinicas)]
 
 
 correlacion.metaboloma[nombres.met,nombres.met]<- 0
@@ -587,298 +604,524 @@ correlacion.metaboloma[nombres.metagenoma,nombres.metagenoma]<- 0
 
 
 
-network <-  graph_from_adjacency_matrix(correlacion.metaboloma,weighted = T)
-network <- delete.edges(network, E(network)[ abs(weight) < 0.5])
-isolated_nodes <- which(degree(network) == 0)  # Obtener índices de nodos no conectados
-network <- delete.vertices(network, v = isolated_nodes)  # Eliminar nodos no conectados
+network <-
+  graph_from_adjacency_matrix(correlacion.metaboloma, weighted = T)
 
+network <- delete.edges(network, E(network)[abs(E(network)$weight) < cutoff])
+isolated_nodes <-
+  which(degree(network) == 0)  # Obtener índices de nodos no conectados
+network <-
+  delete.vertices(network, v = isolated_nodes)  # Eliminar nodos no conectados
+V(network)$nombre <-
+  ifelse(names(V(network)) %in% nombres.clinicas, "yellow", "yellow")
+V(network)$nombre <-
+  ifelse(names(V(network)) %in% nombres.met, "darkblue", V(network)$nombre)
+V(network)$nombre <-
+  ifelse(names(V(network)) %in% nombres.metagenoma, "green", V(network)$nombre)
+V(network)$nombre <- as.factor(V(network)$nombre)
 grafo <- as_tbl_graph(network)
+V(grafo)
+p1 <- ggraph(grafo, layout = 'linear', circular = T) +
+  geom_edge_link(aes(
+    width = weight,
+    alpha = 0.7,
+    edge_colour = ifelse(weight > 0, "blue", "red")
+  )) +  geom_node_point(size = 4,
+                        show.legend = FALSE,
+                        color=V(grafo)$nombre) +
+  geom_node_text(
+    aes(label = name),
+    colour = "black",
+    size = 5,
+    show.legend = FALSE,
+    family = "serif",
+    repel = T
+  ) +
+  theme_graph(background = "white") + theme(legend.position = "none") +
+  coord_fixed() + ggtitle("Total")
 
-ggraph(grafo, layout = 'linear',circular=T) + 
-  geom_edge_link(aes(width=weight,alpha=0.7,edge_colour=ifelse(weight>0,"blue","red"))) +  geom_node_point(color = "black", size = 4, show.legend = FALSE) +
-  geom_node_text(aes(label = name),  colour = 'black', size=5,
-                  show.legend = FALSE, family = "serif",repel = T) +
-  theme_graph(background = "white") + theme(legend.position = "none") +coord_fixed()
+
+correlacion.metaboloma <-
+  corr.test(cbind(parte.met[obesidad == "Obese", ], clinicas[obesidad ==
+                                                                  "Obese", ]))$r
+nombres.met <- colnames(correlacion.metaboloma)[grep("mean",colnames(correlacion.metaboloma))]
+nombres.clinicas <- colnames(correlacion.metaboloma)[colnames(correlacion.metaboloma) %in% colnames(clinicas)]
+metclinicas <- c(nombres.met,nombres.clinicas)
+nombres.metagenoma<- colnames(correlacion.metaboloma)[!colnames(correlacion.metaboloma) %in% metclinicas]
+
+
+correlacion.metaboloma[nombres.met,nombres.met]<- 0
+correlacion.metaboloma[nombres.clinicas,nombres.clinicas]<- 0
+correlacion.metaboloma[nombres.metagenoma,nombres.metagenoma]<- 0
+
+
+
+
+network <-
+  graph_from_adjacency_matrix(correlacion.metaboloma, weighted = T)
+
+network <- delete.edges(network, E(network)[abs(E(network)$weight) < cutoff])
+isolated_nodes <-
+  which(degree(network) == 0)  # Obtener índices de nodos no conectados
+network <-
+  delete.vertices(network, v = isolated_nodes)  # Eliminar nodos no conectados
+V(network)$nombre <-
+  ifelse(names(V(network)) %in% nombres.clinicas, "yellow", "yellow")
+V(network)$nombre <-
+  ifelse(names(V(network)) %in% nombres.met, "darkblue", V(network)$nombre)
+V(network)$nombre <-
+  ifelse(names(V(network)) %in% nombres.metagenoma, "green", V(network)$nombre)
+V(network)$nombre <- as.factor(V(network)$nombre)
+grafo <- as_tbl_graph(network)
+V(grafo)
+p2 <- ggraph(grafo, layout = 'linear', circular = T) +
+  geom_edge_link(aes(
+    width = weight,
+    alpha = 0.7,
+    edge_colour = ifelse(weight > 0, "blue", "red")
+  )) +  geom_node_point(size = 4,
+                        show.legend = FALSE,
+                        color=V(grafo)$nombre) +
+  geom_node_text(
+    aes(label = name),
+    colour = "black",
+    size = 5,
+    show.legend = FALSE,
+    family = "serif",
+    repel = T
+  ) +
+  theme_graph(background = "white") + theme(legend.position = "none") +
+  coord_fixed() + ggtitle("Obese")
+
+
+correlacion.metaboloma <-
+  corr.test(cbind(parte.met[obesidad == "No Obese", ], clinicas[obesidad ==
+                                                                  "No Obese", ]))$r
+nombres.met <- colnames(correlacion.metaboloma)[grep("mean",colnames(correlacion.metaboloma))]
+nombres.clinicas <- colnames(correlacion.metaboloma)[colnames(correlacion.metaboloma) %in% colnames(clinicas)]
+metclinicas <- c(nombres.met,nombres.clinicas)
+nombres.metagenoma<- colnames(correlacion.metaboloma)[!colnames(correlacion.metaboloma) %in% metclinicas]
+
+
+correlacion.metaboloma[nombres.met,nombres.met]<- 0
+correlacion.metaboloma[nombres.clinicas,nombres.clinicas]<- 0
+correlacion.metaboloma[nombres.metagenoma,nombres.metagenoma]<- 0
+
+
+
+network <-
+  graph_from_adjacency_matrix(correlacion.metaboloma, weighted = T)
+
+network <- delete.edges(network, E(network)[abs(E(network)$weight) < cutoff])
+isolated_nodes <-
+  which(degree(network) == 0)  # Obtener índices de nodos no conectados
+network <-
+  delete.vertices(network, v = isolated_nodes)  # Eliminar nodos no conectados
+V(network)$nombre <-
+  ifelse(names(V(network)) %in% nombres.clinicas, "yellow", "yellow")
+V(network)$nombre <-
+  ifelse(names(V(network)) %in% nombres.met, "darkblue", V(network)$nombre)
+V(network)$nombre <-
+  ifelse(names(V(network)) %in% nombres.metagenoma, "green", V(network)$nombre)
+V(network)$nombre <- as.factor(V(network)$nombre)
+grafo <- as_tbl_graph(network)
+V(grafo)
+p3 <- ggraph(grafo, layout = 'linear', circular = T) +
+  geom_edge_link(aes(
+    width = weight,
+    alpha = 0.7,
+    edge_colour = ifelse(weight > 0, "blue", "red")
+  )) +  geom_node_point(size = 4,
+                        show.legend = FALSE,
+                        color=V(grafo)$nombre) +
+  geom_node_text(
+    aes(label = name),
+    colour = "black",
+    size = 5,
+    show.legend = FALSE,
+    family = "serif",
+    repel = T
+  ) +
+  theme_graph(background = "white") + theme(legend.position = "none") +
+  coord_fixed() + ggtitle("No Obese")
+
+p1
+p2
+p3
 ```
 
-```{r}
-library(networkD3)
-library(dplyr)
-library(tidyr)
-incidence <- corr.test(parte.met,clinicas)$r
-incidence[abs(incidence)<0.2]<-0
-links <- incidence %>% 
-  as.data.frame() %>% 
-  tibble::rownames_to_column(var="source") %>% 
-  gather(key="target", value="value", -1) %>%
-  filter(value != 0)
-nodes <- data.frame(
-  name=c(as.character(links$source), as.character(links$target)) %>% 
-    unique()
-  )
-links$IDsource <- match(links$source, nodes$name)-1 
-links$IDtarget <- match(links$target, nodes$name)-1
-p <- sankeyNetwork(Links = links, Nodes = nodes,
-                     Source = "IDsource", Target = "IDtarget",
-                     Value = "value", NodeID = "name", 
-                     sinksRight=FALSE)
-
-p
-
-```
-
-```{r}
-
-pesos
-
-correlacion.metaboloma <- corr.test(datos_raw[,nombres2])
-r <- correlacion.metaboloma$r
-p <- correlacion.metaboloma$p
-
 
-corrplot::corrplot(r,method = "square",is.corr = T,p.mat = p,insig = "label_sig",cl.cex = 0.7,
-                   pch.cex = 0.7,
-                   win.asp = 1,
-                   tl.cex = 0.6)
+<!-- ## correlacion R clinicas -->
 
-clinicas <- scale(datos$comunes$variables_in_bacteria[,6:16])
-parte.met <- factores[,1:5] %*% t(pesos[nombres2,1:5])
 
-correlacion.metaboloma <- corr.test(parte.met)
-r <- correlacion.metaboloma$r
-p <- correlacion.metaboloma$p
 
-corrplot::corrplot(r,method = "square",is.corr = T,p.mat = p,insig = "label_sig",cl.cex = 0.7,
-                   pch.cex = 0.7,
-                   win.asp = 1,
-                   tl.cex = 0.6,pch.col = "green")
-```
+<!-- ```{r} -->
+<!-- cutoff <- 0.9 -->
+<!-- correlacion.metaboloma <- corr.test(cbind(parte.met,clinicas))$r -->
+<!-- nombres.met <- colnames(correlacion.metaboloma)[grep("mean",colnames(correlacion.metaboloma))] -->
+<!-- nombres.clinicas <- colnames(correlacion.metaboloma)[colnames(correlacion.metaboloma) %in% colnames(clinicas)] -->
+<!-- csa <- c(nombres.met,nombres.clinicas) -->
+<!-- nombres.metagenoma<- colnames(correlacion.metaboloma)[!colnames(correlacion.metaboloma) %in% colnames(clinicas)] -->
 
-Veamos por obesidad
 
-```{r}
-feat.met <- as.character((pesos.pesos.m$data$feature)[pesos.pesos.m$data$value>0.6])
-feat.g2 <- (pesos.pesos.gf2$data$feature)[pesos.pesos.gf2$data$value>0.8]
-feat.g4 <- (pesos.pesos.gf4$data$feature)[pesos.pesos.gf4$data$value>0.8]
-feat.g5 <- (pesos.pesos.gf5$data$feature)[pesos.pesos.gf5$data$value>0.8]
+<!-- # correlacion.metaboloma[nombres.met,nombres.met]<- 0 -->
+<!-- # correlacion.metaboloma[nombres.clinicas,nombres.clinicas]<- 0 -->
+<!-- # correlacion.metaboloma[nombres.metagenoma,nombres.metagenoma]<- 0 -->
 
-feat.metagenoma <- as.character(unique(c(feat.g2,feat.g4,feat.g5)))
+<!-- incidence <- correlacion.metaboloma -->
+<!-- incidence[abs(incidence)<cutoff]<-NA -->
+<!-- incidence <- incidence[ , apply(incidence, 2, function(x) !all(is.na(incidence)))] -->
 
 
-nombres2 <- c(feat.met,feat.metagenoma)
-# raw.pcos <- datos_raw[grupo=="PCOS",]
-# raw.female <- datos_raw[grupo=="Female",]
-# 
-# funcion_cor(raw.pcos,nombres2,"PCOS")
-# funcion_cor(raw.female,nombres2,"Female")
-# 
-# raw.pcos <- R[grupo=="PCOS",]
-# raw.female <- R[grupo=="Female",]
-# 
-# funcion_cor(raw.pcos,nombres2,"PCOS")
-# funcion_cor(raw.female,nombres2,"Female")
 
-R <- factores[grupo=="PCOS",fac] %*% t(pesos[nombres2,fac])
+<!-- links <- incidence %>% -->
+<!--   as.data.frame() %>% -->
+<!--   tibble::rownames_to_column(var="source") %>% -->
+<!--   gather(key="target", value="value", -1) %>% -->
+<!--   filter(value != 0) -->
+<!-- nodes <- data.frame( -->
+<!--   name=c(as.character(links$source), as.character(links$target)) %>% -->
+<!--     unique() -->
+<!--   ) -->
 
+<!-- links$IDsource <- match(links$source, nodes$name)-1 -->
+<!-- links$IDtarget <- match(links$target, nodes$name)-1 -->
 
-incidence <- corr.test(R)$r
-incidence[abs(incidence)<0.4]<-0
+<!-- links$group <- as.factor(ifelse(links$value>0,"blue","red")) -->
+<!-- my_color <- 'd3.scaleOrdinal() .domain(["blue", "red"]) .range(["blue", "red"])' -->
 
-incidence[grep("mean",colnames(incidence)),grep("mean",colnames(incidence))] <-0
-incidence[-grep("mean",colnames(incidence)),-grep("mean",colnames(incidence))] <-0
+<!-- p <- sankeyNetwork(Links = links, Nodes = nodes, -->
+<!--                      Source = "IDsource", Target = "IDtarget", -->
+<!--                      Value = "value", NodeID = "name", -->
+<!--                      sinksRight=F,fontSize = 15,LinkGroup = "group",colourScale = my_color) -->
 
-incidence <- incidence[grep("mean",colnames(incidence)),-grep("mean",colnames(incidence))]
+<!-- p -->
 
-links <- incidence %>%
-  as.data.frame() %>%
-  tibble::rownames_to_column(var="source") %>%
-  gather(key="target", value="value", -1) %>%
-  filter(value != 0)
-nodes <- data.frame(
-  name=c(as.character(links$source), as.character(links$target)) %>%
-    unique()
-  )
+<!-- ``` -->
 
-links$IDsource <- match(links$source, nodes$name)-1
-links$IDtarget <- match(links$target, nodes$name)-1
+<!-- ```{r} -->
 
-links$group <- as.factor(ifelse(links$value>0,"blue","red"))
-my_color <- 'd3.scaleOrdinal() .domain(["blue", "red"]) .range(["blue", "red"])'
+<!-- pesos -->
 
-p <- sankeyNetwork(Links = links, Nodes = nodes,
-                     Source = "IDsource", Target = "IDtarget",
-                     Value = "value", NodeID = "name",
-                     sinksRight=F,fontSize = 15,LinkGroup = "group",colourScale = my_color)
+<!-- correlacion.metaboloma <- corr.test(datos_raw[,nombres2]) -->
+<!-- r <- correlacion.metaboloma$r -->
+<!-- p <- correlacion.metaboloma$p -->
 
-p
 
-```
+<!-- corrplot::corrplot(r,method = "square",is.corr = T,p.mat = p,insig = "label_sig",cl.cex = 0.7, -->
+<!--                    pch.cex = 0.7, -->
+<!--                    win.asp = 1, -->
+<!--                    tl.cex = 0.6) -->
 
-```{r}
-//
-```
+<!-- clinicas <- scale(datos$comunes$variables_in_bacteria[,6:16]) -->
+<!-- parte.met <- factores[,1:5] %*% t(pesos[nombres2,1:5]) -->
 
+<!-- correlacion.metaboloma <- corr.test(parte.met) -->
+<!-- r <- correlacion.metaboloma$r -->
+<!-- p <- correlacion.metaboloma$p -->
 
-```{r}
-raw.pcos <- datos_raw[grupo=="Male",]
-raw.female <- datos_raw[grupo=="Female",]
+<!-- corrplot::corrplot(r,method = "square",is.corr = T,p.mat = p,insig = "label_sig",cl.cex = 0.7, -->
+<!--                    pch.cex = 0.7, -->
+<!--                    win.asp = 1, -->
+<!--                    tl.cex = 0.6,pch.col = "green") -->
 
-funcion_cor(raw.pcos,nombres2,"Male")
-funcion_cor(raw.female,nombres2,"Female")
+<!-- ``` -->
 
-raw.pcos <- R[grupo=="Male",]
-raw.female <- R[grupo=="Female",]
 
-funcion_cor(raw.pcos,nombres2,"Male")
-funcion_cor(raw.female,nombres2,"Female")
-```
 
-```{r}
+<!-- ```{r} -->
+<!-- # raw.pcos <- datos_raw[grupo=="PCOS",] -->
+<!-- # raw.female <- datos_raw[grupo=="Female",] -->
+<!-- #  -->
+<!-- # funcion_cor(raw.pcos,nombres2,"PCOS") -->
+<!-- # funcion_cor(raw.female,nombres2,"Female") -->
+<!-- #  -->
+<!-- # raw.pcos <- R[grupo=="PCOS",] -->
+<!-- # raw.female <- R[grupo=="Female",] -->
+<!-- #  -->
+<!-- # funcion_cor(raw.pcos,nombres2,"PCOS") -->
+<!-- # funcion_cor(raw.female,nombres2,"Female") -->
 
+<!-- R <- factores[,fac] %*% t(pesos[nombres3,fac]) -->
 
-raw.pcos <- datos_raw[grupo=="Male",]
-raw.female <- datos_raw[grupo=="PCOS",]
 
-funcion_cor(raw.pcos,nombres2,"Male")
-funcion_cor(raw.female,nombres2,"PCOS")
+<!-- incidence <- corr.test(R)$r -->
+<!-- incidence[abs(incidence)<0.4]<-0 -->
 
-raw.pcos <- R[grupo=="Male",]
-raw.female <- R[grupo=="PCOS",]
+<!-- incidence[grep("mean",colnames(incidence)),grep("mean",colnames(incidence))] <-0 -->
+<!-- incidence[-grep("mean",colnames(incidence)),-grep("mean",colnames(incidence))] <-0 -->
 
-funcion_cor(raw.pcos,nombres2,"Male")
-funcion_cor(raw.female,nombres2,"PCOS")
-```
+<!-- incidence <- incidence[grep("mean",colnames(incidence)),-grep("mean",colnames(incidence))] -->
 
-```{r}
-raw.obese <- datos_raw[obesidad=="Obese",]
-raw.Noobese <- datos_raw[obesidad=="No Obese",]
+<!-- links <- incidence %>% -->
+<!--   as.data.frame() %>% -->
+<!--   tibble::rownames_to_column(var="source") %>% -->
+<!--   gather(key="target", value="value", -1) %>% -->
+<!--   filter(value != 0) -->
+<!-- nodes <- data.frame( -->
+<!--   name=c(as.character(links$source), as.character(links$target)) %>% -->
+<!--     unique() -->
+<!--   ) -->
 
+<!-- links$IDsource <- match(links$source, nodes$name)-1 -->
+<!-- links$IDtarget <- match(links$target, nodes$name)-1 -->
 
-funcion_cor(raw.Noobese,nombres2,"No Obese")
-funcion_cor(raw.obese,nombres2,"Obese")
+<!-- links$group <- as.factor(ifelse(links$value>0,"blue","red")) -->
+<!-- my_color <- 'd3.scaleOrdinal() .domain(["blue", "red"]) .range(["blue", "red"])' -->
 
-raw.obese <- R[obesidad=="Obese",]
-raw.Noobese <- R[obesidad=="No Obese",]
+<!-- p <- sankeyNetwork(Links = links, Nodes = nodes, -->
+<!--                      Source = "IDsource", Target = "IDtarget", -->
+<!--                      Value = "value", NodeID = "name", -->
+<!--                      sinksRight=F,fontSize = 15,LinkGroup = "group",colourScale = my_color) -->
 
+<!-- p -->
 
-funcion_cor(raw.Noobese,nombres2,"No Obese")
-funcion_cor(raw.obese,nombres2,"Obese")
+<!-- ``` -->
 
-```
+<!-- ```{r} -->
 
-```{r}
-source("./manova_vanvalen.R")
-```
+<!-- pesos -->
 
-```{r}
+<!-- correlacion.metaboloma <- corr.test(datos_raw[,nombres2]) -->
+<!-- r <- correlacion.metaboloma$r -->
+<!-- p <- correlacion.metaboloma$p -->
 
-R <- factores[,1:3] %*% t([nombres2,1:3])
 
-vanValen.test(R,obesidad)
-vanValen.test(R,interaction(grupo,obesidad))
-vanValen.test(R,grupo)
-vanValen.test(R[obesidad=="Obese",],
-              grupo[obesidad=="Obese"])
+<!-- corrplot::corrplot(r,method = "square",is.corr = T,p.mat = p,insig = "label_sig",cl.cex = 0.7, -->
+<!--                    pch.cex = 0.7, -->
+<!--                    win.asp = 1, -->
+<!--                    tl.cex = 0.6) -->
 
-vanValen.test(R[obesidad=="No Obese",],
-              grupo[obesidad=="No Obese"])
+<!-- clinicas <- scale(datos$comunes$variables_in_bacteria[,6:16]) -->
+<!-- parte.met <- factores[,1:5] %*% t(pesos[nombres2,1:5]) -->
 
-vanValen.test(R[grupo=="PCOS",],
-              obesidad[grupo=="PCOS"])
+<!-- correlacion.metaboloma <- corr.test(parte.met) -->
+<!-- r <- correlacion.metaboloma$r -->
+<!-- p <- correlacion.metaboloma$p -->
 
-vanValen.test(R[grupo=="Female",],
-              obesidad[grupo=="Female"])
+<!-- corrplot::corrplot(r,method = "square",is.corr = T,p.mat = p,insig = "label_sig",cl.cex = 0.7, -->
+<!--                    pch.cex = 0.7, -->
+<!--                    win.asp = 1, -->
+<!--                    tl.cex = 0.6,pch.col = "green") -->
+<!-- ``` -->
 
-vanValen.test(R[grupo=="Male" ,],
-              obesidad[grupo=="Male"])
+<!-- Veamos por obesidad -->
 
-vanValen.test(R[grupo!="Male",],
-              as.factor(as.character(grupo[grupo!="Male"])))
+<!-- ```{r} -->
 
+<!-- nombres2 <- c(feat.met,feat.metagenoma) -->
+<!-- # raw.pcos <- datos_raw[grupo=="PCOS",] -->
+<!-- # raw.female <- datos_raw[grupo=="Female",] -->
+<!-- #  -->
+<!-- # funcion_cor(raw.pcos,nombres2,"PCOS") -->
+<!-- # funcion_cor(raw.female,nombres2,"Female") -->
+<!-- #  -->
+<!-- # raw.pcos <- R[grupo=="PCOS",] -->
+<!-- # raw.female <- R[grupo=="Female",] -->
+<!-- #  -->
+<!-- # funcion_cor(raw.pcos,nombres2,"PCOS") -->
+<!-- # funcion_cor(raw.female,nombres2,"Female") -->
 
-vanValen.test(R[grupo!="Female",],
-              as.factor(as.character(grupo[grupo!="Female"])))
+<!-- R <- factores[grupo=="PCOS",fac] %*% t(pesos[nombres2,fac]) -->
 
-vanValen.test(R[grupo!="PCOS",],
-              as.factor(as.character(grupo[grupo!="PCOS"])))
-```
 
-```{r}
-clinicas <- scale(datos$comunes$variables_in_bacteria[,6:16])
+<!-- incidence <- corr.test(R)$r -->
+<!-- incidence[abs(incidence)<0.4]<-0 -->
 
+<!-- incidence[grep("mean",colnames(incidence)),grep("mean",colnames(incidence))] <-0 -->
+<!-- incidence[-grep("mean",colnames(incidence)),-grep("mean",colnames(incidence))] <-0 -->
 
-correlacion.metaboloma <- corr.test(datos_raw[,nombres2],clinicas)
-r <- correlacion.metaboloma$r
-p <- correlacion.metaboloma$p
-corrplot::corrplot(r,method = "square",is.corr = F,p.mat = p,insig = "label_sig",cl.cex = 0.7,
-                   pch.cex = 0.7,
-                   win.asp = 1,
-                   tl.cex = 0.6)
+<!-- incidence <- incidence[grep("mean",colnames(incidence)),-grep("mean",colnames(incidence))] -->
 
-clinicas <- scale(datos$comunes$variables_in_bacteria[,6:16])
-parte.met <- factores[,1:5] %*% t(pesos[nombres2,1:5])
+<!-- links <- incidence %>% -->
+<!--   as.data.frame() %>% -->
+<!--   tibble::rownames_to_column(var="source") %>% -->
+<!--   gather(key="target", value="value", -1) %>% -->
+<!--   filter(value != 0) -->
+<!-- nodes <- data.frame( -->
+<!--   name=c(as.character(links$source), as.character(links$target)) %>% -->
+<!--     unique() -->
+<!--   ) -->
 
-correlacion.metaboloma <- corr.test(parte.met,clinicas)
-r <- correlacion.metaboloma$r
-p <- correlacion.metaboloma$p
-corrplot::corrplot(r,method = "square",is.corr = F,p.mat = p,insig = "label_sig",cl.cex = 0.7,
-                   pch.cex = 0.7,
-                   win.asp = 1,
-                   tl.cex = 0.6)
-```
+<!-- links$IDsource <- match(links$source, nodes$name)-1 -->
+<!-- links$IDtarget <- match(links$target, nodes$name)-1 -->
 
-```{r}
-parte.met.obese  <- factores[obesidad=="Obese",1:5] %*% t(pesos[nombres2,1:5])
-parte.met.noobese  <- factores[obesidad=="No Obese",1:5] %*% t(pesos[nombres2,1:5])
+<!-- links$group <- as.factor(ifelse(links$value>0,"blue","red")) -->
+<!-- my_color <- 'd3.scaleOrdinal() .domain(["blue", "red"]) .range(["blue", "red"])' -->
 
-clin.obese <- clinicas[obesidad=="Obese",]
-clin.NoObese <- clinicas[obesidad=="No Obese",]
-funcion_ass(parte.met.obese,clin.obese,vars = nombres2,titulo = "obesesos")
+<!-- p <- sankeyNetwork(Links = links, Nodes = nodes, -->
+<!--                      Source = "IDsource", Target = "IDtarget", -->
+<!--                      Value = "value", NodeID = "name", -->
+<!--                      sinksRight=F,fontSize = 15,LinkGroup = "group",colourScale = my_color) -->
 
-funcion_ass(parte.met.noobese,(clin.NoObese),vars = nombres2,titulo = "obesesos")
-```
+<!-- p -->
 
-```{r}
-parte.met.obese  <- factores[grupo=="Female",1:5] %*% t(pesos[nombres2,1:5])
-parte.met.noobese  <- factores[grupo=="PCOS",1:5] %*% t(pesos[nombres2,1:5])
+<!-- ``` -->
 
-clin.obese <- clinicas[grupo=="Female",]
-clin.NoObese <- clinicas[grupo=="PCOS",]
-funcion_ass(parte.met.obese,clin.obese,vars = nombres2,titulo = "Female")
+<!-- ```{r} -->
+<!-- // -->
+<!-- ``` -->
 
-funcion_ass(parte.met.noobese,(clin.NoObese),vars = nombres2,titulo = "PCOS")
-```
+<!-- ```{r} -->
+<!-- raw.pcos <- datos_raw[grupo=="Male",] -->
+<!-- raw.female <- datos_raw[grupo=="Female",] -->
 
-```{r}
-parte.met.obese  <- factores[grupo=="Female",1:5] %*% t(pesos[nombres2,1:5])
-parte.met.noobese  <- factores[grupo=="Male",1:5] %*% t(pesos[nombres2,1:5])
+<!-- funcion_cor(raw.pcos,nombres2,"Male") -->
+<!-- funcion_cor(raw.female,nombres2,"Female") -->
 
-clin.obese <- clinicas[grupo=="Female",]
-clin.NoObese <- clinicas[grupo=="Male",]
-funcion_ass(parte.met.obese,clin.obese,vars = nombres2,titulo = "Female")
+<!-- raw.pcos <- R[grupo=="Male",] -->
+<!-- raw.female <- R[grupo=="Female",] -->
 
-funcion_ass(parte.met.noobese,(clin.NoObese),vars = nombres2,titulo = "Male")
-```
+<!-- funcion_cor(raw.pcos,nombres2,"Male") -->
+<!-- funcion_cor(raw.female,nombres2,"Female") -->
+<!-- ``` -->
 
-```{r}
-R <- as.data.frame(factores[,1:3] %*% t(pesos[nombres2,1:3]))
-split.obesidad <- base::split(R,obesidad)
-split.grupo <- base::split(R,grupo)
-clinicas <- as.data.frame(clinicas)
-clinicas.obesidad <- base::split(clinicas,obesidad)
-clinicas.grupo <- base::split(clinicas,grupo)
+<!-- ```{r} -->
 
-cov.ob <- scale(cov(split.grupo$Female,clinicas.grupo$Female))
-cov.noob <- scale(cov(split.grupo$PCOS,clinicas.grupo$PCOS))
 
-covv.ob <- reshape2::melt(cov.ob)
-covv.noob <- reshape2::melt(cov.noob)
+<!-- raw.pcos <- datos_raw[grupo=="Male",] -->
+<!-- raw.female <- datos_raw[grupo=="PCOS",] -->
 
-csa <- data.frame(ob=covv.ob,noob=covv.noob)
-csa.melt <- reshape2::melt(csa)
-ggplot(csa.melt,aes(x=value,col=variable))+geom_density()
-ggplot(csa.melt,aes(x=value,col=variable))+geom_boxplot()
-vanValen.test2(cov.ob,cov.noob)
-```
+<!-- funcion_cor(raw.pcos,nombres2,"Male") -->
+<!-- funcion_cor(raw.female,nombres2,"PCOS") -->
 
-Existe el learning manifold, pero no nos sirve de mucho
+<!-- raw.pcos <- R[grupo=="Male",] -->
+<!-- raw.female <- R[grupo=="PCOS",] -->
+
+<!-- funcion_cor(raw.pcos,nombres2,"Male") -->
+<!-- funcion_cor(raw.female,nombres2,"PCOS") -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- raw.obese <- datos_raw[obesidad=="Obese",] -->
+<!-- raw.Noobese <- datos_raw[obesidad=="No Obese",] -->
+
+
+<!-- funcion_cor(raw.Noobese,nombres2,"No Obese") -->
+<!-- funcion_cor(raw.obese,nombres2,"Obese") -->
+
+<!-- raw.obese <- R[obesidad=="Obese",] -->
+<!-- raw.Noobese <- R[obesidad=="No Obese",] -->
+
+
+<!-- funcion_cor(raw.Noobese,nombres2,"No Obese") -->
+<!-- funcion_cor(raw.obese,nombres2,"Obese") -->
+
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- source("./manova_vanvalen.R") -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+
+<!-- R <- factores[,1:3] %*% t([nombres2,1:3]) -->
+
+<!-- vanValen.test(R,obesidad) -->
+<!-- vanValen.test(R,interaction(grupo,obesidad)) -->
+<!-- vanValen.test(R,grupo) -->
+<!-- vanValen.test(R[obesidad=="Obese",], -->
+<!--               grupo[obesidad=="Obese"]) -->
+
+<!-- vanValen.test(R[obesidad=="No Obese",], -->
+<!--               grupo[obesidad=="No Obese"]) -->
+
+<!-- vanValen.test(R[grupo=="PCOS",], -->
+<!--               obesidad[grupo=="PCOS"]) -->
+
+<!-- vanValen.test(R[grupo=="Female",], -->
+<!--               obesidad[grupo=="Female"]) -->
+
+<!-- vanValen.test(R[grupo=="Male" ,], -->
+<!--               obesidad[grupo=="Male"]) -->
+
+<!-- vanValen.test(R[grupo!="Male",], -->
+<!--               as.factor(as.character(grupo[grupo!="Male"]))) -->
+
+
+<!-- vanValen.test(R[grupo!="Female",], -->
+<!--               as.factor(as.character(grupo[grupo!="Female"]))) -->
+
+<!-- vanValen.test(R[grupo!="PCOS",], -->
+<!--               as.factor(as.character(grupo[grupo!="PCOS"]))) -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- clinicas <- scale(datos$comunes$variables_in_bacteria[,6:16]) -->
+
+
+<!-- correlacion.metaboloma <- corr.test(datos_raw[,nombres2],clinicas) -->
+<!-- r <- correlacion.metaboloma$r -->
+<!-- p <- correlacion.metaboloma$p -->
+<!-- corrplot::corrplot(r,method = "square",is.corr = F,p.mat = p,insig = "label_sig",cl.cex = 0.7, -->
+<!--                    pch.cex = 0.7, -->
+<!--                    win.asp = 1, -->
+<!--                    tl.cex = 0.6) -->
+
+<!-- clinicas <- scale(datos$comunes$variables_in_bacteria[,6:16]) -->
+<!-- parte.met <- factores[,1:5] %*% t(pesos[nombres2,1:5]) -->
+
+<!-- correlacion.metaboloma <- corr.test(parte.met,clinicas) -->
+<!-- r <- correlacion.metaboloma$r -->
+<!-- p <- correlacion.metaboloma$p -->
+<!-- corrplot::corrplot(r,method = "square",is.corr = F,p.mat = p,insig = "label_sig",cl.cex = 0.7, -->
+<!--                    pch.cex = 0.7, -->
+<!--                    win.asp = 1, -->
+<!--                    tl.cex = 0.6) -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- parte.met.obese  <- factores[obesidad=="Obese",1:5] %*% t(pesos[nombres2,1:5]) -->
+<!-- parte.met.noobese  <- factores[obesidad=="No Obese",1:5] %*% t(pesos[nombres2,1:5]) -->
+
+<!-- clin.obese <- clinicas[obesidad=="Obese",] -->
+<!-- clin.NoObese <- clinicas[obesidad=="No Obese",] -->
+<!-- funcion_ass(parte.met.obese,clin.obese,vars = nombres2,titulo = "obesesos") -->
+
+<!-- funcion_ass(parte.met.noobese,(clin.NoObese),vars = nombres2,titulo = "obesesos") -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- parte.met.obese  <- factores[grupo=="Female",1:5] %*% t(pesos[nombres2,1:5]) -->
+<!-- parte.met.noobese  <- factores[grupo=="PCOS",1:5] %*% t(pesos[nombres2,1:5]) -->
+
+<!-- clin.obese <- clinicas[grupo=="Female",] -->
+<!-- clin.NoObese <- clinicas[grupo=="PCOS",] -->
+<!-- funcion_ass(parte.met.obese,clin.obese,vars = nombres2,titulo = "Female") -->
+
+<!-- funcion_ass(parte.met.noobese,(clin.NoObese),vars = nombres2,titulo = "PCOS") -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- parte.met.obese  <- factores[grupo=="Female",1:5] %*% t(pesos[nombres2,1:5]) -->
+<!-- parte.met.noobese  <- factores[grupo=="Male",1:5] %*% t(pesos[nombres2,1:5]) -->
+
+<!-- clin.obese <- clinicas[grupo=="Female",] -->
+<!-- clin.NoObese <- clinicas[grupo=="Male",] -->
+<!-- funcion_ass(parte.met.obese,clin.obese,vars = nombres2,titulo = "Female") -->
+
+<!-- funcion_ass(parte.met.noobese,(clin.NoObese),vars = nombres2,titulo = "Male") -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- R <- as.data.frame(factores[,1:3] %*% t(pesos[nombres2,1:3])) -->
+<!-- split.obesidad <- base::split(R,obesidad) -->
+<!-- split.grupo <- base::split(R,grupo) -->
+<!-- clinicas <- as.data.frame(clinicas) -->
+<!-- clinicas.obesidad <- base::split(clinicas,obesidad) -->
+<!-- clinicas.grupo <- base::split(clinicas,grupo) -->
+
+<!-- cov.ob <- scale(cov(split.grupo$Female,clinicas.grupo$Female)) -->
+<!-- cov.noob <- scale(cov(split.grupo$PCOS,clinicas.grupo$PCOS)) -->
+
+<!-- covv.ob <- reshape2::melt(cov.ob) -->
+<!-- covv.noob <- reshape2::melt(cov.noob) -->
+
+<!-- csa <- data.frame(ob=covv.ob,noob=covv.noob) -->
+<!-- csa.melt <- reshape2::melt(csa) -->
+<!-- ggplot(csa.melt,aes(x=value,col=variable))+geom_density() -->
+<!-- ggplot(csa.melt,aes(x=value,col=variable))+geom_boxplot() -->
+<!-- vanValen.test2(cov.ob,cov.noob) -->
+<!-- ``` -->
+
+<!-- Existe el learning manifold, pero no nos sirve de mucho -->
