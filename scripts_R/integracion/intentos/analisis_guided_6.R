@@ -7,8 +7,7 @@ library(vegan)
 library(mixOmics)
 library(caret)
 library(glmnet)
-source("./scripts_R/scripts_utiles/scripts_funciones/analisis_univariante_e_interpretacion.R")
-source("./scripts_R/scripts_utiles/scripts_funciones/manova_vanvalen.R")
+
 
 transformacion <- function(X) {
   return((t(log2(X / colSums(
@@ -75,8 +74,14 @@ mofa_componentes_original <-
   function(ncomp,
            semilla,
            directorio_modelo,
-           metaboloma,
-           metagenoma) {
+           variables) {
+    vars.metaboloma <- variables[grep("mean", variables)]
+    vars.metagenoma <- variables[-grep("mean", variables)][-1]
+    
+    metaboloma <-
+      (transformacion(datos$comunes$metaboloma))[, vars.metaboloma]
+    metagenoma <-
+      scale(t(mean_aldex(datos$comunes$microbiota$genero)))[, vars.metagenoma]
     mofa.obj <- create_mofa_from_matrix(list(
       metaboloma = t(metaboloma),
       metagenoma = t(metagenoma)
@@ -244,114 +249,55 @@ extract_univ <- function(x, correc) {
 datos  <- readRDS("../datos/preprocesado_05_02_23/novoom.rds")
 
 
-metaboloma <- voom((datos$comunes$metaboloma))$E
-metagenoma <- scale((mean_aldex(datos$comunes$microbiota$genero)))
-
-lista.datos <- list(voom=list(metaboloma=metaboloma,
-                              metagenoma=metagenoma))
-# lista.datos <-
-#   list(
-#     scale.scale = list(metaboloma = scale(t(
-#       datos$comunes$metaboloma
-#     )),
-#     metagenoma = scale(t(
-#       mean_aldex(datos$comunes$microbiota$genero)
-#     ))),
-#     trans.scale = list(metaboloma = transformacion(t(
-#       datos$comunes$metaboloma
-#     )),
-#     metagenoma = scale(t(
-#       mean_aldex(datos$comunes$microbiota$genero)
-#     ))),
-#     trans.trans = list(metaboloma = transformacion(t(
-#       datos$comunes$metaboloma
-#     )),
-#     metagenoma = (t(
-#       mean_aldex(datos$comunes$microbiota$genero)
-#     ))),
-#     scale.trans = list(metaboloma = scale(t(
-#       datos$comunes$metaboloma
-#     )),
-#     metagenoma = (t(
-#       mean_aldex(datos$comunes$microbiota$genero)
-#     )))
-#   )
-
-get_pesos <- function(sclae=F,mdl) Reduce(rbind, get_weights(mdl, scale = sclae))
-get_factores <- function(sclae=F,mdl) get_factors(mdl, scale = sclae)[[1]]
-
-
+metaboloma <- scale(t(datos$comunes$metaboloma))
+metagenoma <- scale(t(mean_aldex(datos$comunes$microbiota$genero)))
 grupo <- datos$comunes$grupo
 obesidad <- datos$comunes$obesidad
 sexo <- datos$comunes$variables_in_bacteria$SEX
-lista.res <- vector("list",length=length(lista.datos))
-for(l in 1:length(lista.datos)){
-  
-  metaboloma <- lista.datos[[l]]$metaboloma
-  metagenoma <- lista.datos[[l]]$metagenoma
-  
-  if(ncol(metagenoma)==46){
-    metagenoma <-t(metagenoma)
-  }
-  if(ncol(metaboloma)==46){
-    metaboloma <- t(metaboloma)
-    
-  }
 
-  dir.tmp <- paste0("./scripts_R/integracion/tmp_mofa_voom","_iteracion_",l)
-  
-  modelos <- lapply(2:11, function(x) mofa_componentes_original(x,
-                                                                123,
-                                                                directorio_modelo = dir.tmp,
-                                                                metaboloma,
-                                                                metagenoma))
-  elbos <- unlist(lapply(modelos,get_elbo))
-  w <- which.max(elbos)
+int <- sample(nrow(metaboloma),nrow(metaboloma)*0.7)
+X <- cbind(metaboloma,metagenoma)
+X.train <- X[int,]
+grupo.train <- sexo[int]
+X.test <- X[-int,]
+grupo.test <- sexo[-int]
 
-  modelo <- modelos[[w]]
-  
-  factores <- get_factores(F,modelo)
-  pesos <- get_pesos(F,modelo)
-  R <- factores %*% t(pesos)
-  
-  funcion_pca(R,trans = F,scle = F)[[1]]
-  
-  van.ob <- vanValen.test(R,obesidad)
-  van.grupo <- vanValen.test(R,grupo)
-  van.interaccion <- vanValen.test(R,interaction(grupo,obesidad))
-  van.females <- vanValen.test(R[grupo!="Male",],as.factor(as.character(grupo[grupo!="Male"])))
-  van.herma <- vanValen.test(R[grupo!="Female",],as.factor(as.character(grupo[grupo!="Female"])))
-  van.control <- vanValen.test(R[grupo!="PCOS",],as.factor(as.character(grupo[grupo!="PCOS"])))
-  
-  van.ob.males <- vanValen.test(R[grupo=="Male",],as.factor(as.character(obesidad[grupo=="Male"])))
-  van.ob.females <- vanValen.test(R[grupo=="Female",],as.factor(as.character(obesidad[grupo=="Female"])))
-  van.ob.pcos <- vanValen.test(R[grupo=="PCOS",],as.factor(as.character(obesidad[grupo=="PCOS"])))
-  
-  
-  van.noob.males <- vanValen.test(R[grupo!="Male" & obesidad=="No Obese",],as.factor(as.character(grupo[grupo!="Male" & obesidad=="No Obese"])))
-  
-  van.noob.females <-  vanValen.test(R[grupo!="Female" & obesidad=="No Obese",],as.factor(as.character(grupo[grupo!="Female" & obesidad=="No Obese"])))
-  
-  van.noob.pcos <-vanValen.test(R[grupo!="PCOS" & obesidad=="No Obese",],as.factor(as.character(grupo[grupo!="PCOS" & obesidad=="No Obese"])))
-  
-  
-  vanvalen.tests <- c(obesidad=van.ob,
-                      grupo=van.grupo,
-                      interaccion=van.interaccion,
-                      van.females=van.females,
-                      van.herma=van.herma,
-                      van.control = van.control,
-                      obesidad.males = van.ob.males,
-                      obesidad.females=van.ob.females,
-                      obesidad.pcos=van.ob.pcos,
-                      noob.males=van.noob.males,
-                      noob.females=van.noob.females,
-                      noob.pcos=van.noob.pcos)
-  
-  lista.res[[l]] <- vanvalen.tests
-}
+set.seed(849
+         )
+# simulate data
+
+# fit multinomial
+ridge_fit <-  cv.glmnet(X.train,
+                        grupo.train,
+                        family = "binomial",
+                        alpha = 0,
+                        lambda = seq(0,1,0.0001),nfolds = 10)
+best_lambda_ridge <- ridge_fit$lambda.min
+ridge_bestfit <- ridge_fit$glmnet.fit
+ridge_pred <- as.factor(stats::predict(ridge_bestfit, s = best_lambda_ridge, 
+                      newx = X.test,type="class"))
+
+confusionMatrix(ridge_pred,grupo.test)
+
+variables <- (colnames(X))[coef(ridge_fit)@x[-1]>0.01]
 
 
-csa <- Reduce("rbind",lista.res)
+metagenoma <- mean_aldex(aldex.clr(datos$comunes$microbiota$genero.abs[,colnames(metagenoma) %in% variables]))
+metaboloma <- metaboloma[,colnames(metaboloma) %in% variables]
 
-funcion_pca(R,scle = F,trans = F)
+
+
+modelos <- lapply(1:11,function(x) mofa_componentes_original(ncomp = x,
+                                                             semilla = 1234,
+                                                             directorio_modelo = "./scripts_R/integracion/prueba_n",
+                                                             variables = variables))
+
+
+w <- which.min(unlist(lapply(modelos,get_elbo)))
+
+saveRDS(modelos[[w]],"./modelo_prueba.rds")
+
+
+
+
+

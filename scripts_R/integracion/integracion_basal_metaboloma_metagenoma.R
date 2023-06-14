@@ -14,8 +14,8 @@ transformacion <- function(X) {
 datos  <- readRDS("../datos/preprocesado_05_02_23/novoom.rds")
 
 
-metaboloma <- (transformacion(datos$comunes$metaboloma))
-metagenoma <- scale(t(mean_aldex(datos$comunes$microbiota$genero)))
+metaboloma <- voom(transformacion(datos$comunes$metaboloma))
+metagenoma <- voom(scale(t(mean_aldex(datos$comunes$microbiota$genero))))
 
 mofa.obj <- create_mofa_from_matrix(list(
   metaboloma = t(metaboloma),
@@ -49,51 +49,51 @@ if (!dir.exists(directorio_modelo)) {
 
 ## Primero vemos cual es el numero optimo de componentes
 
-# semillas <- seq(40,80,10)
-# 
-# directorio_modelo <- "./scripts_R/integracion/modelo_optimo_comp"
-# if (!dir.exists(directorio_modelo)) {
-#   dir.create(directorio_modelo)
-# }
-# mofa_componentes <- function(ncomp,semilla){
-#   metaboloma <- (transformacion(datos$comunes$metaboloma))
-#   metagenoma <- scale(t(mean_aldex(datos$comunes$microbiota$genero)))
-#   mofa.obj <- create_mofa_from_matrix(list(
-#     metaboloma = t(metaboloma),
-#     metagenoma = t(metagenoma)
-#   ))
-#   
-#   data_opts <- get_default_data_options(mofa.obj)
-#   data_opts$scale_views <- T
-#   
-#   model_opts <- get_default_model_options(mofa.obj)
-#   
-#   model_opts$num_factors <- ncomp
-#   
-#   train_opts <- get_default_training_options(mofa.obj)
-#   train_opts$seed <- semilla
-#   
-#   ### probar estocastico
-#   
-#   MOFAobject <- prepare_mofa(
-#     object = mofa.obj,
-#     data_options = data_opts,
-#     model_options = model_opts,
-#     training_options = train_opts
-#   )
-#   
-# 
-#   outfile <- file.path(directorio_modelo, paste0(semilla,"_",ncomp,"model.hdf5"))
-#   
-#   MOFAobject.trained <- run_mofa(MOFAobject, outfile)
-#   
-# }
-# ncomps <- 2:11
-# for(s in semillas){
-#   
-#   lapply(ncomps, function(x) mofa_componentes(ncomp = x,semilla = s))
-#   
-# }
+semillas <- seq(40,80,10)
+
+directorio_modelo <- "./scripts_R/integracion/modelo_optimo_comp"
+if (!dir.exists(directorio_modelo)) {
+  dir.create(directorio_modelo)
+}
+mofa_componentes <- function(ncomp,semilla){
+  metaboloma <- (transformacion(datos$comunes$metaboloma))
+  metagenoma <- scale(t(mean_aldex(datos$comunes$microbiota$genero)))
+  mofa.obj <- create_mofa_from_matrix(list(
+    metaboloma = t(metaboloma),
+    metagenoma = t(metagenoma)
+  ))
+
+  data_opts <- get_default_data_options(mofa.obj)
+  data_opts$scale_views <- T
+
+  model_opts <- get_default_model_options(mofa.obj)
+
+  model_opts$num_factors <- ncomp
+
+  train_opts <- get_default_training_options(mofa.obj)
+  train_opts$seed <- semilla
+
+  ### probar estocastico
+
+  MOFAobject <- prepare_mofa(
+    object = mofa.obj,
+    data_options = data_opts,
+    model_options = model_opts,
+    training_options = train_opts
+  )
+
+
+  outfile <- file.path(directorio_modelo, paste0(semilla,"_",ncomp,"model.hdf5"))
+
+  MOFAobject.trained <- run_mofa(MOFAobject, outfile)
+
+}
+ncomps <- 2:11
+for(s in semillas){
+
+  lapply(ncomps, function(x) mofa_componentes(ncomp = x,semilla = s))
+
+}
 
 modelos <- lapply(list.files(path = "./scripts_R/integracion/modelo_optimo_comp",
                              full.names = T), load_model)
