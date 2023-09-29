@@ -4,9 +4,7 @@
 
 ## Preaparamos librerias CRAN
 list.of.packages <-
-  c(
-    "xlsx",
-    "kableExtra",
+  c("kableExtra",
     "dplyr",
     "ggplot2",
     "egg",
@@ -175,6 +173,7 @@ pretratado_IP <-
            variables_in_bacteria,
            common,
            general_data) {
+    common<-F
     if (common) {
       sujetos <- variables_in_bacteria$Paciente
       IP.tmp <-
@@ -190,8 +189,9 @@ pretratado_IP <-
           which(variables_ip %in% auc_ip),
           which(variables_ip %in% mean_ip)
         )
-      IP.basal <- IP.tmp[,-w]
+      IP.basal <- IP.tmp[-c(54:57),-w]
       rownames(IP.basal) <- sujetos
+      
       
     } else{
       sujetos <- general_data$Paciente
@@ -207,7 +207,7 @@ pretratado_IP <-
           which(variables_ip %in% auc_ip),
           which(variables_ip %in% mean_ip)
         )
-      IP.basal <- IP.tmp[,-w]
+      IP.basal <- IP.tmp[-c(54:57),-w]
       rownames(IP.basal) <- sujetos
       
     }
@@ -547,10 +547,10 @@ proces_bacteria <- function(datos, tipo) {
 
 
 
-ruta <- "../../datos"
+ruta <- "../datos/datos_csv"
 condiciones_ <- "none"
 general_data <-
-  read.xlsx(file.path(ruta, "Integromics_1.xlsx"), sheetIndex = 1)
+  read.csv(file.path(ruta, "Integromics_1.csv"))
 general_data$SEX <-
   factor(general_data$SEX,
          levels = c(0, 2),
@@ -566,8 +566,8 @@ general_data$GROUP <-
     labels = c("Female",  "PCOS", "Male")
   )
 IP_file <-
-  file.path(file.path(ruta, "Integromics_IPmarkers.xlsx")) ## file path of the data
-IP.tmp <- read.xlsx(IP_file, sheetIndex = 1)
+  file.path(file.path(ruta, "Integromics_IPmarkers.csv")) ## file path of the data
+IP.tmp <- read.csv(IP_file)
 IP <- IP.tmp[,-7] # remove the missin values column
 IP$SEX <- factor(IP$SEX,
                  levels = c(0, 2),
@@ -582,25 +582,23 @@ IP$GROUP <-
          labels = c("Female", "PCOS", "Male"))
 
 metabolome_file <-
-  file.path(file.path(ruta, "Integromics_Metabolome.xlsx")) ## file path of the data
+  file.path(file.path(ruta, "Integromics_Metabolome.csv")) ## file path of the data
 metabolome.tmp <-
-  read.xlsx(metabolome_file, sheetIndex = 1) # read the data
+  read.csv(metabolome_file) # read the data
 metabolites_name <-
-  read.xlsx(metabolome_file, sheetIndex = 2)$Metabolitos # read the names of the metabolites
+  read.csv(metabolome_file)$Metabolitos # read the names of the metabolites
 any(is.na(metabolome.tmp)) # there is a row of missing values.
 metabolome <-
-  metabolome.tmp[-nrow(metabolome.tmp),] ## remove the missing value row
+  metabolome.tmp ## remove the missing value row
 metabolome$GROUP <- general_data$GROUP ## add GROUP variable
 metabolome$OBESE <- general_data$OBESE ## add OBESE variables.
 
 bacteria_phylum.abs <-
-  as.data.frame(read.xlsx(file.path(ruta, "integromics_microbiota.xlsx"),
-                          sheetIndex = 1))
+  as.data.frame(read.csv(file.path(ruta, "filo.csv")))
 
 bacteria_genera.abs <-
-  as.data.frame(t(read.xlsx(
-    file.path(ruta, "integromics_microbiota.xlsx"),
-    sheetIndex = 3
+  as.data.frame(t(read.csv(
+    file.path(ruta, "genero.csv")
   )))
 phylum.list <-
   proces_bacteria(bacteria_phylum.abs, tipo = "phylum")
@@ -716,11 +714,13 @@ comunes <- list(
 retorno <- list(totales = totales, comunes = comunes)
 
 
-directorio_datos <- "../../datos/preprocesado_05_02_23"
+directorio_datos <- "../datos/preprocesado_08_09_23"
 
 if (!dir.exists(directorio_datos)) {
   dir.create(directorio_datos)
 }
 
 saveRDS(retorno, file = file.path(directorio_datos, "novoom.rds"))
+
+
 

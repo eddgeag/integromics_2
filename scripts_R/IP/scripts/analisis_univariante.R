@@ -1,6 +1,8 @@
 
 source("./scripts_R/scripts_utiles/scripts_funciones/analisis_univariante_e_interpretacion.R")
-datos <- readRDS("../../datos/preprocesado_05_02_23/novoom.rds")
+source("./scripts_R/scripts_utiles/scripts_funciones/calculo_medianas.R")
+datos <- readRDS("../datos/preprocesado_08_09_23/novoom.rds")
+
 set.seed(126581)
 
 directorio <- "./scripts_R/IP/resultados_univariantes_totales"
@@ -9,7 +11,30 @@ if(!dir.exists(directorio)){
   dir.create(directorio)
 }
 
-X <- scale(as.matrix(datos$totales$ip))
+X <- scale(as.matrix(as.data.frame(lapply(datos$totales$ip,as.numeric),
+                                   row.names = rownames(datos$totales$ip))))
+
+## search na
+
+filas_y_variables_con_NA <- function(df) {
+  # Obtener las filas con NA
+  filas_con_NA <- rownames(df)[apply(df, 1, function(x) any(is.na(x)))]
+  
+  # Obtener las variables con NA
+  variables_con_NA <- colnames(df)[apply(df, 2, function(x) any(is.na(x)))]
+  
+  # Crear una lista con las filas y variables con NA
+  resultado <- list(Filas_con_NA = filas_con_NA, Variables_con_NA = variables_con_NA)
+  
+  return(resultado)
+}
+
+matriz_con_NA_a_cero <- function(df) {
+  # Reemplazar NA por 0 en el marco de datos
+  df_sin_NA <- ifelse(is.na(df), 0, df)
+  
+  return(df_sin_NA)
+}
 grupo <- datos$totales$general_data$GROUP
 obesidad <- datos$totales$general_data$OBESE
 

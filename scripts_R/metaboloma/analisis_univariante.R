@@ -3,7 +3,7 @@ library(ggplot2)
 library(reshape2)
 source("./scripts_R/scripts_utiles/scripts_funciones/analisis_univariante_e_interpretacion.R")
 source("./scripts_R/scripts_utiles/scripts_funciones/calculo_medianas.R")
-datos <- readRDS("../../datos/preprocesado_05_02_23/novoom.rds")
+datos <- readRDS("../datos/preprocesado_08_09_23/novoom.rds")
 set.seed(126581)
 
 

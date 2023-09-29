@@ -121,7 +121,7 @@ funcion_cor <- function(x, vars, titulo) {
   
 }
 
-funcion_corr <- function(x, vars, titulo) {
+funcion_corr <- function(x, titulo) {
   correlacion.metaboloma <- corr.test(x, adjust = "BH")
   r <- correlacion.metaboloma$r
   p <- correlacion.metaboloma$p
@@ -150,6 +150,7 @@ funcion_corr <- function(x, vars, titulo) {
 
 
 funcion_cor_F <- function(x, p, vars, titulo) {
+  if(!is.null(vars)){
   csa <-
     corrplot::corrplot(
       x[vars, ],
@@ -162,10 +163,25 @@ funcion_cor_F <- function(x, p, vars, titulo) {
       win.asp = 1,
       tl.cex = 0.6,
       title = titulo,
-      pch.col = "green",
+      pch.col = "black",
       mar = c(0, 0, 1, 0)
     )
-  
+  }else{
+      corrplot::corrplot(
+      x,
+      method = "square",
+      is.corr = F,
+      p.mat = p,
+      insig = "label_sig",
+      cl.cex = 0.7,
+      pch.cex = 0.7,
+      win.asp = 1,
+      tl.cex = 0.6,
+      title = titulo,
+      pch.col = "black",
+      mar = c(0,0,1,0)
+      )
+  }
   
 }
 
@@ -408,7 +424,7 @@ funcion_red <- function(incidence, titulo, cutoff) {
     ifelse(V(graph)$angle < -90, V(graph)$angle + 180, V(graph)$angle)
   
   p1 <- ggraph(graph, layout = 'linear', circular = TRUE) +
-    geom_edge_arc(aes(color = weight, width = abs(weight) / 4), alpha = 0.3) +
+    geom_edge_arc(aes(color = weight, width = abs(weight) / 4), alpha = 0.5) +
     geom_node_text(
       aes(
         x = x * 1.1,
@@ -463,7 +479,7 @@ funcion_red3 <- function(incidence, titulo, cutoff) {
     ifelse(V(graph)$angle < -90, V(graph)$angle + 180, V(graph)$angle)
   
   p1 <- ggraph(graph, layout = 'linear', circular = TRUE) +
-    geom_edge_arc(aes(color = weight, width = abs(weight) / 4), alpha = 0.3) +
+    geom_edge_arc(aes(color = weight, width = abs(weight) / 4), alpha = 0.2) +
     geom_node_text(
       aes(
         x = x * 1.1,
@@ -740,6 +756,8 @@ funcion_esp.cor <- function(R2) {
   
 }
 
+
+
 datos <- readRDS("../../../datos/preprocesado_05_02_23/novoom.rds")
 obesidad <- datos$comunes$obesidad
 grupo <- datos$comunes$grupo
@@ -838,9 +856,10 @@ p5 <- correlate_factors_with_covariates(
     "WC",
     "WHR",
     "hsCRP",
-    "RatioFreeTE2"
-    
-  ),factors = fac)
+    "RatioFreeTE2",
+    "TOTAL_TEST",
+    "FREE_TEST"
+    ),factors = fac)
 ```
 
 El estradiol esta relacionado con el segundo factor el cual esta relacionado con el metagenoma, y en menor medida el hsCRP
@@ -851,9 +870,9 @@ Miremos la varianza explicada por los features
 pesos.metaboloma <- get_weights(modelo,"metaboloma",scale = F)[[1]]
 plot_variance_explained_per_feature(modelo,
                                     "metaboloma",                                    features=1:nrow(pesos.metaboloma),
-                                    factors = fac,
+                                    factors = 1:3,
                                     split_by_factor = T,
-                                    return_data = F
+                                    return_data = F,max_r2 = 60
                                     )
 ```
 
@@ -1056,7 +1075,10 @@ raw_data <- cbind(metaboloma,metagenoma)
 ```
 
 ```{r}
-R <- factores[,1:2] %*% t(pesos[feats,1:2])
+facts <- 1:4
+factores <- get_factores(sclae = F,mdl = modelo)
+pesos <- get_pesos(sclae = F,mdl = modelo)
+R <- factores[,facts] %*% t(pesos[feats,facts])
 univ <- extract_univ(raw_data[,feats],correc = 2)
 univ_R <- extract_univ(R,correc = 2)
 univ_F <- extract_univ(factores,correc = 2)
@@ -1104,24 +1126,150 @@ vanValen.test2(datos_raw[,feats],R)
 ```
 
 ```{r}
-funcion_cor(x = datos_raw,vars = feats,titulo = "Original")
-funcion_cor(x = R,vars = feats,titulo = "Reconstucted")
+funcion_cor(x = datos_raw,titulo = "Original")
+funcion_cor(x = R,titulo = "Reconstucted")
 
 ```
 
 ## comparacion grupos
 
 ```{r}
-funcion_cor(x = datos_raw[grupo=="Female",],vars = feats,titulo = "Female Original")
-funcion_cor(x = datos_raw[grupo=="PCOS",],vars = feats,titulo = "PCOS Original")
-funcion_cor(x = datos_raw[grupo=="Male",],vars = feats,titulo = "Male Original")
+funcion_cor(x = datos_raw[grupo=="Female",feats],titulo = "Female Original")
+funcion_cor(x = datos_raw[grupo=="PCOS",feats],titulo = "PCOS Original")
+funcion_cor(x = datos_raw[grupo=="Male",feats],titulo = "Male Original")
 
 ```
 
 ```{r}
-funcion_cor(x = R[grupo=="Female",],vars = feats,titulo = "Female Reconstucted")
-funcion_cor(x = R[grupo=="PCOS",],vars = feats,titulo = "PCOS Reconstucted")
-funcion_cor(x = R[grupo=="Male",],vars = feats,titulo = "Male Reconstucted")
+funcion_cor(x = R[grupo=="Female",],titulo = "Female Reconstucted")
+funcion_cor(x = R[grupo=="PCOS",],titulo = "PCOS Reconstucted")
+funcion_cor(x = R[grupo=="Male",],titulo = "Male Reconstucted")
+
+```
+
+
+
+```{r}
+
+fun_auxsum <- function(x, w) {
+  micor <- corr.test(x)
+  r <- micor$r
+  p <- micor$p
+  r.interact <- r
+  r.interact[lower.tri(r.interact)] <- 0
+  diag(r.interact) <- 0
+  r.met <-
+    r.interact[w,w]
+  r.met <- r.met[upper.tri(r.met)]
+  
+  p.interact <- p
+  p.interact[lower.tri(p.interact)] <- 1
+  diag(p.interact) <- 1
+  p.met <-
+    p.interact[w,w]
+  p.met <- p.met[upper.tri(p.met)]
+  
+  up.met.sig <- sum(r.met[p.met < 0.05] > 0)
+  down.met.sig <- sum(r.met[p.met < 0.05] < 0)
+  
+  ret <- c(up=up.met.sig,
+           down=down.met.sig)
+  
+}
+
+funcion_summary <- function(X, n) {
+
+  r <- corr.test(X,adjust = "none")$r
+  p <- corr.test(X,adjust = "none")$p
+  if (n == 2) {
+    w.micro <-
+      colnames(r)[which(colnames(r) %in% colnames(metagenoma))]
+    w.meta <-
+      colnames(r)[which(colnames(r) %in% colnames(metaboloma))]
+    
+    r.interact <- r
+    r.interact[lower.tri(r.interact)] <- 0
+    diag(r.interact) <- 0
+    r.met <-
+      r.interact[w.micro, w.meta]
+    
+    p.interact <- p
+    p.interact[lower.tri(p.interact)] <- 1
+    diag(p.interact) <- 1
+    p.met <-
+      p.interact[w.micro, w.meta]
+
+    up.met.sig <- sum(r.met[p.met < 0.05] > 0)
+    down.met.sig <- sum(r.met[p.met < 0.05] < 0)
+    
+    ret.interact <- c(up = up.met.sig,
+                      down = down.met.sig)
+    res_met <- fun_auxsum(X,w.meta)
+    res_micro <- fun_auxsum(X,w.micro)
+    
+    retorno <- list(metaboloma=res_met,
+                    microbioma=res_micro,
+                    interact = ret.interact)
+    
+  }else{
+        w.micro <-
+      colnames(r)[which(colnames(r) %in% colnames(metagenoma))]
+    w.meta <-
+      colnames(r)[which(colnames(r) %in% colnames(metaboloma))]
+    w.clin <- colnames(r)[which(colnames(r) %in% colnames(clinicas))]
+    
+    res_clin <- fun_auxsum(X, w.clin)
+    res_met <- fun_auxsum(X,w.meta)
+    res_micro <- fun_auxsum(X,w.micro)
+    
+    
+    r.interact <- r
+    
+    r.interact[w.clin, w.clin] <-
+      0
+    
+    r.interact[w.meta, w.meta] <-
+      0
+    
+    r.interact[w.micro, w.micro] <-
+      0
+    diag(r.interact) <- 0
+    
+    uper.interact.r <- r.interact[upper.tri(r.interact)]
+    
+    
+    p.interact <- p
+    
+    p.interact[w.clin, w.clin] <-
+      1
+    
+    p.interact[w.meta, w.meta] <-
+      1
+    
+    p.interact[w.micro, w.micro] <-
+      1
+    diag(p.interact) <- 1
+    
+    uper.interact.p <- r.interact[upper.tri(p.interact)]
+    
+    up <- sum(r.interact[p.interact<0.05]>0)
+    down <- sum(r.interact[p.interact<0.05]<0)
+    
+    ret.interact <- c(up=up,down=down)
+    
+    retorno <- list(metaboloma=res_met,
+                    microbioma=res_micro,
+                    clinica = res_clin,
+                    interact = ret.interact)
+    
+  }
+  
+  
+  
+  return(retorno)
+}
+
+
 
 ```
 
@@ -1187,8 +1335,8 @@ ggarrange(p1,p2)
 ```
 
 ```{r}
-p1 <- fun_red_wrapper(datos_raw[,feats],"PCOS","PCOS - Original",0.6)
-p2 <- fun_red_wrapper(R[,feats],"PCOS","PCOS-Reconstructed",0.6)
+p1 <- fun_red_wrapper(datos_raw[,feats],"PCOS","PCOS - Original",0.5)
+p2 <- fun_red_wrapper(R[,feats],"PCOS","PCOS-Reconstructed",0.5)
 
 ggarrange(p1,p2)
 ```
@@ -1256,7 +1404,7 @@ vanValen.test2(cbind(datos_raw[,feats],clinicas),cbind(R,clinicas))
 ```
 
 ```{r}
-funcion_corr(x = cbind(datos_raw[,feats],clinicas),vars = feats,titulo = "Original")
+funcion_corr(x = cbind(datos_raw[,feats],clinicas),titulo = "Original")
 funcion_corr(x = cbind(R,clinicas),titulo = "Reconstucted")
 
 ```
@@ -1264,16 +1412,220 @@ funcion_corr(x = cbind(R,clinicas),titulo = "Reconstucted")
 ## comparacion grupos
 
 ```{r}
-funcion_corr(x = cbind(datos_raw[grupo=="Female",feats],clinicas[grupo=="Female",]),vars = feats,titulo = "Female Original")
-funcion_corr(x = cbind(datos_raw[grupo=="PCOS",feats],clinicas[grupo=="PCOS",]),vars = feats,titulo = "PCOS Original")
-funcion_corr(x = cbind(datos_raw[grupo=="Male",feats],clinicas[grupo=="Male",]),vars = feats,titulo = "Male Original")
+funcion_corr(x = cbind(datos_raw[grupo=="Female",feats],clinicas[grupo=="Female",]),titulo = "Female Original")
+funcion_corr(x = cbind(datos_raw[grupo=="PCOS",feats],clinicas[grupo=="PCOS",]),titulo = "PCOS Original")
+funcion_corr(x = cbind(datos_raw[grupo=="Male",feats],clinicas[grupo=="Male",]),titulo = "Male Original")
 
 ```
 
 ```{r}
-funcion_corr(x = cbind(R[grupo=="Female",],clinicas[grupo=="Female",]),vars = feats,titulo = "Female Reconstucted")
-funcion_corr(x = cbind(R[grupo=="PCOS",],clinicas[grupo=="PCOS",]),vars = feats,titulo = "PCOS Reconstucted")
-funcion_corr(x = cbind(R[grupo=="Male",],clinicas[grupo=="Male",]),vars = feats,titulo = "Male Reconstucted")
+funcion_corr(x = cbind(R[grupo=="Female",],clinicas[grupo=="Female",]),titulo = "Female Reconstucted")
+funcion_corr(x = cbind(R[grupo=="PCOS",],clinicas[grupo=="PCOS",]),titulo = "PCOS Reconstucted")
+funcion_corr(x = cbind(R[grupo=="Male",],clinicas[grupo=="Male",]),titulo = "Male Reconstucted")
+
+```
+
+## comparacion grupos red
+
+```{r}
+fun_red_wrapper_2 <- function(X, sujetos,titulo,cutoff) {
+  if(!is.null(sujetos)){
+    
+  
+  cor.o <- cor(X[grupo == sujetos,])
+  
+  cor.o[colnames(cor.o) %in% colnames(metaboloma),
+        colnames(cor.o) %in% colnames(metaboloma)] <- 0
+  
+  cor.o[colnames(cor.o) %in% colnames(metagenoma),
+        colnames(cor.o) %in% colnames(metagenoma)] <- 0
+   
+  cor.o[colnames(cor.o) %in% colnames(clinicas),
+        colnames(cor.o) %in% colnames(clinicas)] <- 0
+  
+  p1 <-
+    funcion_red3(incidence = cor.o,
+                titulo = titulo,
+                cutoff = cutoff)
+  }else{
+      cor.o <- cor(X)
+  
+  cor.o[colnames(cor.o) %in% colnames(metaboloma),
+        colnames(cor.o) %in% colnames(metaboloma)] <- 0
+  
+  cor.o[colnames(cor.o) %in% colnames(metagenoma),
+        colnames(cor.o) %in% colnames(metagenoma)] <- 0
+    
+  cor.o[colnames(cor.o) %in% colnames(clinicas),
+        colnames(cor.o) %in% colnames(clinicas)] <- 0
+  
+  
+  
+  p1 <-
+    funcion_red3(incidence = cor.o,
+                titulo = titulo,
+                cutoff = cutoff)
+  }
+  
+  return(p1)
+  
+}
+
+
+p1 <- fun_red_wrapper_2(cbind(datos_raw[,feats],clinicas),NULL,"Original",0.4)
+p2 <- fun_red_wrapper_2(cbind(R[,feats],clinicas),NULL,"Reconstructed",0.4)
+
+ggarrange(p1,p2)
+```
+
+```{r}
+p1 <- fun_red_wrapper_2(cbind(datos_raw[,feats],clinicas),"Female","Female - Original",0.4)
+p2 <- fun_red_wrapper_2(cbind(R[,feats],clinicas),"Female","Female-Reconstructed",0.4)
+
+ggarrange(p1,p2)
+```
+
+```{r}
+p1 <- fun_red_wrapper_2(cbind(datos_raw[,feats],clinicas),"Male","Male - Original",0.4)
+p2 <- fun_red_wrapper_2(cbind(R[,feats],clinicas),"Male","Male-Reconstructed",0.4)
+
+ggarrange(p1,p2)
+```
+
+```{r}
+p1 <- fun_red_wrapper_2(cbind(datos_raw[,feats],clinicas),"PCOS","PCOS - Original",0.6)
+p2 <- fun_red_wrapper_2(cbind(R[,feats],clinicas),"PCOS","PCOS-Reconstructed",0.6)
+
+ggarrange(p1,p2)
+```
+
+# bivariante clinicas
+
+```{r}
+clinicas.tmp <- (datos$comunes$variables_in_bacteria[,6:16])
+clinicas <- clinicas.tmp[,-c(6,7)]
+res_van <- funcion_esp.cor(cbind(datos_raw[,feats],clinicas))
+
+res_van[2:4] <- p.adjust(res_van[2:4],"BH")
+
+res_van[5:length(res_van)] <- p.adjust(5:length(res_van),"BH")
+
+(res_van <- as.data.frame((res_van)))
+
+```
+
+```{r}
+R <- factores[,1:4] %*% t(pesos[feats,1:4])
+
+
+res_van <- funcion_esp.cor(cbind(R,clinicas))
+
+res_van[2:4] <- p.adjust(res_van[2:4],"BH")
+
+res_van[5:length(res_van)] <- p.adjust(5:length(res_van),"BH")
+
+(res_van <- as.data.frame((res_van)))
+
+```
+
+
+## comparacion
+
+```{r}
+R <- factores[,1:4] %*% t(pesos[feats,1:4])
+
+vanValen.test2(cbind(datos_raw[,feats],clinicas),cbind(R,clinicas))
+```
+
+```{r}
+funcion_corr(x = cbind(datos_raw[,feats],clinicas),titulo = "Original")
+funcion_corr(x = cbind(R,clinicas),titulo = "Reconstucted")
+
+```
+
+## comparacion obesidad
+
+```{r}
+
+funcion_corr(x = cbind(datos_raw[obesidad=="Obese",feats],clinicas[obesidad=="Obese",]),titulo = "Obese Original")
+funcion_corr(x = cbind(datos_raw[obesidad=="No Obese",feats],clinicas[obesidad=="No Obese",]),titulo = "No Obese Original")
+
+```
+
+```{r}
+funcion_corr(x = cbind(R[obesidad=="Obese",feats],clinicas[obesidad=="Obese",]),titulo = "Obese Reconstructed")
+funcion_corr(x = cbind(R[obesidad=="No Obese",feats],clinicas[obesidad=="No Obese",]),titulo = "No Obese Reconstructed")
+
+```
+
+```{r}
+fun_red_wrapper_3 <- function(X, sujetos,titulo,cutoff) {
+  if(!is.null(sujetos)){
+    
+  
+  cor.o <- cor(X[obesidad == sujetos,])
+  
+  cor.o[colnames(cor.o) %in% colnames(metaboloma),
+        colnames(cor.o) %in% colnames(metaboloma)] <- 0
+  
+  cor.o[colnames(cor.o) %in% colnames(metagenoma),
+        colnames(cor.o) %in% colnames(metagenoma)] <- 0
+   
+  cor.o[colnames(cor.o) %in% colnames(clinicas),
+        colnames(cor.o) %in% colnames(clinicas)] <- 0
+  
+  p1 <-
+    funcion_red3(incidence = cor.o,
+                titulo = titulo,
+                cutoff = cutoff)
+  }else{
+      cor.o <- cor(X)
+  
+  cor.o[colnames(cor.o) %in% colnames(metaboloma),
+        colnames(cor.o) %in% colnames(metaboloma)] <- 0
+  
+  cor.o[colnames(cor.o) %in% colnames(metagenoma),
+        colnames(cor.o) %in% colnames(metagenoma)] <- 0
+    
+  cor.o[colnames(cor.o) %in% colnames(clinicas),
+        colnames(cor.o) %in% colnames(clinicas)] <- 0
+  
+  
+  
+  p1 <-
+    funcion_red3(incidence = cor.o,
+                titulo = titulo,
+                cutoff = cutoff)
+  }
+  
+  return(p1)
+  
+}
+
+cutoff <- 0.6
+D <- datos_raw[,feats]
+p1 <- fun_red_wrapper_3(cbind(clinicas,D),"Obese","Obese-Original",cutoff)
+p2 <- fun_red_wrapper_3(cbind(clinicas,D),"No Obese","No Obese-Original",cutoff)
+ggarrange(p1,p2)
+p1 <- fun_red_wrapper_3(cbind(clinicas,R),"Obese","Obese-Reconstruction",cutoff)
+p2 <- fun_red_wrapper_3(cbind(clinicas,R),"No Obese","No Obese-Reconstruction",cutoff)
+ggarrange(p1,p2)
+
+```
+
+## comparacion grupos
+
+```{r}
+funcion_corr(x = cbind(datos_raw[grupo=="Female",feats],clinicas[grupo=="Female",]),titulo = "Female Original")
+funcion_corr(x = cbind(datos_raw[grupo=="PCOS",feats],clinicas[grupo=="PCOS",]),titulo = "PCOS Original")
+funcion_corr(x = cbind(datos_raw[grupo=="Male",feats],clinicas[grupo=="Male",]),titulo = "Male Original")
+
+```
+
+```{r}
+funcion_corr(x = cbind(R[grupo=="Female",],clinicas[grupo=="Female",]),titulo = "Female Reconstucted")
+funcion_corr(x = cbind(R[grupo=="PCOS",],clinicas[grupo=="PCOS",]),titulo = "PCOS Reconstucted")
+funcion_corr(x = cbind(R[grupo=="Male",],clinicas[grupo=="Male",]),titulo = "Male Reconstucted")
 
 ```
 
@@ -1331,127 +1683,358 @@ ggarrange(p1,p2)
 ```
 
 ```{r}
-p1 <- fun_red_wrapper_2(cbind(datos_raw[,feats],clinicas),"Female","Female - Original",0.5)
-p2 <- fun_red_wrapper_2(cbind(R[,feats],clinicas),"Female","Female-Reconstructed",0.5)
+r.obj <- corr.test(cbind(R[grupo=="Female",],clinicas[grupo=="Female",]),adjust = "BH")
+p <-r.obj$p
+p[lower.tri(p)] <-1
+diag(p)<-1
+p[p>0.05]<-1
+r <-r.obj$r
+cutoff <-abs(r[which.min(p[p<0.05])])
+p1 <- fun_red_wrapper_2(cbind(datos_raw[,feats],clinicas),"Female","Female - Original",cutoff)
+p2 <- fun_red_wrapper_2(cbind(R[,feats],clinicas),"Female","Female-Reconstructed",cutoff)
 
 ggarrange(p1,p2)
 ```
 
 ```{r}
-p1 <- fun_red_wrapper_2(cbind(datos_raw[,feats],clinicas),"Male","Male - Original",0.5)
-p2 <- fun_red_wrapper_2(cbind(R[,feats],clinicas),"Male","Male-Reconstructed",0.5)
+r.obj <- corr.test(cbind(R[grupo=="Male",],clinicas[grupo=="Male",]),adjust = "BH")
+p <-r.obj$p
+p[lower.tri(p)] <-1
+diag(p)<-1
+p[p>0.05]<-1
+r <-r.obj$r
+cutoff <-abs(r[which.min(p[p<0.05])])
+p1 <- fun_red_wrapper_2(cbind(datos_raw[,feats],clinicas),"Male","Male - Original",0.6)
+p2 <- fun_red_wrapper_2(cbind(R[,feats],clinicas),"Male","Male-Reconstructed",0.6)
 
 ggarrange(p1,p2)
 ```
 
 ```{r}
-p1 <- fun_red_wrapper_2(cbind(datos_raw[,feats],clinicas),"PCOS","PCOS - Original",0.7)
-p2 <- fun_red_wrapper_2(cbind(R[,feats],clinicas),"PCOS","PCOS-Reconstructed",0.7)
+r.obj <- corr.test(cbind(R[grupo=="PCOS",],clinicas[grupo=="PCOS",]),adjust = "BH")
+p <-r.obj$p
+p[lower.tri(p)] <-1
+diag(p)<-1
+p[p>0.05]<-1
+r <-r.obj$r
+cutoff <-0.
+p1 <- fun_red_wrapper_2(cbind(datos_raw[,feats],clinicas),"PCOS","PCOS - Original",cutoff)
+p2 <- fun_red_wrapper_2(cbind(R[,feats],clinicas),"PCOS","PCOS-Reconstructed",cutoff)
 
 ggarrange(p1,p2)
 ```
 
-# Multivariante 
+# Factors bivariate
+
+```{r}
+X <- cbind(datos_raw[,feats.g],clinicas)
+funcion_corr(X,titulo = "Original")
+
+X <- cbind(R[,feats.g],clinicas)
+funcion_corr(X,titulo = "Reconstructed")
+```
+
+```{r}
+D <- datos_raw[,feats]
+vanValen.test2(((D)),
+               ((R)))
+```
+
+```{r}
+funcion_esp.cor(cbind(datos_raw))
+```
+
+```{r}
+funcion_red3(cor(cbind(factores[,1:4],clinicas[,-c(6,7)])),
+                   cutoff = 0.3,"Cosa")
+
+```
+
+```{r}
+(res_van <- vanValen.test2(cbind(datos_raw[,feats],clinicas),cbind(R,clinicas)))
+
+
+res_van <- funcion_esp.cor((cbind(datos_raw,clinicas)))
+res_van[2:4] <- p.adjust(res_van[2:4],"BH")
+
+res_van[5:length(res_van)] <- p.adjust(5:length(res_van),"BH")
+
+(res_van <- as.data.frame((res_van)))
+```
+
+# Bivarite within omics
+
+```{r}
+csa <- mixOmics::pls(R[,feat.m],R[,feats.g],ncomp = 1)
+csa <- mixOmics::pls(D[,feat.m],D[,feats.g],ncomp = 1)
+
+cor(csa$variates$X,csa$variates$Y)
+
+
+
+```
+
+```{r}
+cor.o <- cor(D[grupo=="Male",])
+
+
+funcion_red(incidence = cor.o,titulo = "Reconstructed",cutoff = 0.9)
+```
+
+# BIVARIATE IN GENERAL with clinical
+
+```{r}
+ob <- corr.test((R[obesidad=="Obese",]),(clinicas[obesidad=="Obese",]))$r
+noob <- corr.test((R[obesidad=="No Obese",]),(clinicas[obesidad=="No Obese",]))$r
+female <- corr.test((R[grupo=="Female",]),(clinicas[grupo=="Female",]))$r
+male <- corr.test((R[grupo=="Male",]),(clinicas[grupo=="Male",]))$r
+pcos <- corr.test((R[grupo=="PCOS",]),(clinicas[grupo=="PCOS",]))$r
+
+obfemale <- corr.test((R[grupo[obesidad=="Obese"]=="Female",]),(clinicas[grupo[obesidad=="Obese"]=="Female",]))$r
+obmale <- corr.test((R[grupo[obesidad=="Obese"]=="Male",]),(clinicas[grupo[obesidad=="Obese"]=="Male",]))$r
+obpcos <- corr.test((R[grupo[obesidad=="Obese"]=="PCOS",]),(clinicas[grupo[obesidad=="Obese"]=="PCOS",]))$r
+noobfemale <- corr.test((R[grupo[obesidad=="No Obese"]=="Female",]),(clinicas[grupo[obesidad=="No Obese"]=="Female",]))$r
+noobmale <- corr.test((R[grupo[obesidad=="No Obese"]=="Male",]),(clinicas[grupo[obesidad=="No Obese"]=="Male",]))$r
+noobpcos <- corr.test((R[grupo[obesidad=="No Obese"]=="PCOS",]),(clinicas[grupo[obesidad=="No Obese"]=="PCOS",]))$r
+
+vanValen.test2(ob,noob)
+vanValen.test2(female,male)
+vanValen.test2(male,pcos)
+vanValen.test2(female,pcos)
+vanValen.test2(obfemale,noobfemale)
+vanValen.test2(obpcos,noobpcos)
+vanValen.test2(obmale,noobmale)
+vanValen.test2(noobmale,noobpcos)
+vanValen.test2(noobmale,noobfemale)
+vanValen.test2(noobfemale,noobpcos)
+vanValen.test2(obmale,obpcos)
+vanValen.test2(obmale,obfemale)
+vanValen.test2(obfemale,obpcos)
+
+
+```
+
+# Multivariante
+
+
+
+```{r}
+D <- datos_raw[,feats]
+annotate_figure(funcion_pca(D,trans = F,scle = F)[[1]],
+                top="Original")
+annotate_figure(funcion_pca(R,trans = F,scle = F)[[1]],
+                top="Reconstruction")
+```
+
+
+```{r}
+library(ggrepel)
+pcx <- prcomp(R,scale. = F)
+pcxx <- data.frame(PC1=pcx$x[,1],
+                  PC2=pcx$x[,2],
+                  Group=grupo,
+                  Obesity=obesidad)
+varianzas <- round(100*pcx$sdev^2/sum(pcx$sdev^2),2)
+p1 <- ggplot(pcxx,aes(PC1,PC2,color=Group,shape=Obesity))+geom_point(size=2)+xlab(paste("PC1",varianzas[1],"%"))+ylab(paste("PC2",varianzas[2],"%"))+facet_grid(~Obesity)
+pcx <- prcomp(R,scale. = F)
+pcxx <- data.frame(PC1=pcx$x[,1],
+                  PC2=pcx$x[,2],
+                  Group=grupo,
+                  Obesity=obesidad,
+                  Subjects = rownames(R))
+varianzas <- round(100*pcx$sdev^2/sum(pcx$sdev^2),2)
+
+p2 <- ggplot(pcxx,aes(PC1,PC2,color=Group,shape=Obesity,label=Subjects))+geom_point(size=2)+xlab(paste("PC1",varianzas[1],"%"))+ylab(paste("PC2",varianzas[2],"%"))+geom_text_repel()+facet_grid(~Obesity)
+
+annotate_figure(p1,"Reconstruction")
+annotate_figure(p2,"Reconstruction")
+pcx <- prcomp(cbind(R,clinicas[,-c(6,7,8)]),scale. = T)
+pcxx <- data.frame(PC1=pcx$x[,1],
+                  PC2=pcx$x[,2],
+                  Group=grupo,
+                  Obesity=obesidad,
+                  Subjects = rownames(R))
+varianzas <- round(100*pcx$sdev^2/sum(pcx$sdev^2),2)
+
+p2 <- ggplot(pcxx,aes(PC1,PC2,color=Group,shape=Obesity))+geom_point(size=2)+xlab(paste("PC1",varianzas[1],"%"))+ylab(paste("PC2",varianzas[2],"%"))
+
+annotate_figure(p2,"Reconstruction WITH  clinical variables and WITHOUT testosterone")
+
+
+
+```
+
+```{r}
+pcx <- prcomp(R,scale. = F)
+factoextra::fviz_contrib(pcx,"var",axes = 1)
+factoextra::fviz_contrib(pcx,"var",axes = 2)
+factoextra::fviz_pca_var(pcx)
+factoextra::fviz_screeplot(pcx)
+
+```
+
 
 ## Variables Latentes solas
 
 ```{r}
 
-factores <- get_factores(sclae = F,modelo)
+factores <- get_factores(sclae = F,modelo)[,1:4]
 Rc <- cbind(factores,clinicas)
 
 funcion_pca(Rc,scle = T,trans = F)
 
-pcx <- prcomp(Rc)
+pcx <- prcomp(Rc,scale. = T)
 
-factoextra::fviz_contrib(pcx,"var",axes = 1)
-factoextra::fviz_contrib(pcx,"var",axes = 2)
+pcxx <- data.frame(PC1=pcx$x[,1],
+                  PC2=pcx$x[,2],
+                  Group=grupo,
+                  Obesity=obesidad,
+                  Subjects = rownames(R))
+varianzas <- round(100*pcx$sdev^2/sum(pcx$sdev^2),2)
+
+p2 <- ggplot(pcxx,aes(PC1,PC2,color=Group,shape=Obesity))+geom_point(size=2)+xlab(paste("PC1",varianzas[1],"%"))+ylab(paste("PC2",varianzas[2],"%"))
+
+annotate_figure(p2,"Latent Factors WITH  clinical variables and WITH testosterone")
+
 
 ```
-## Variables latentes clinicas sin testosterona
+
+
+
 ```{r}
-factores <- get_factores(sclae = F,modelo)
-Rc <- cbind(factores,clinicas[,-c(6:7)])
+factoextra::fviz_pca(pcx,col.vars="cos2")
+factoextra::fviz_contrib(pcx,"var")
+factoextra::fviz_contrib(pcx,"var",axes = 2)
+factoextra::fviz_screeplot(pcx)
+```
+
+## Variables latentes SIN TESTSTERONA
+```{r}
+
+factores <- get_factores(sclae = F,modelo)[,1:4]
+Rc <- cbind(factores,clinicas[,-c(6,7)])
 
 funcion_pca(Rc,scle = T,trans = F)
 
 pcx <- prcomp(Rc,scale. = T)
 
+pcxx <- data.frame(PC1=pcx$x[,1],
+                  PC2=pcx$x[,2],
+                  Group=grupo,
+                  Obesity=obesidad,
+                  Subjects = rownames(R))
+varianzas <- round(100*pcx$sdev^2/sum(pcx$sdev^2),2)
+
+p2 <- ggplot(pcxx,aes(PC1,PC2,color=Obesity,shape=Group))+geom_point(size=2)+xlab(paste("PC1",varianzas[1],"%"))+ylab(paste("PC2",varianzas[2],"%")) 
+
+annotate_figure(p2,"Latent factors WITH  clinical variables  WITHOUT testosterone")
+
+
+```
+
+
+
+```{r}
+factoextra::fviz_pca(pcx,col.vars="cos2")
 factoextra::fviz_contrib(pcx,"var")
 factoextra::fviz_contrib(pcx,"var",axes = 2)
+factoextra::fviz_screeplot(pcx)
 ```
-## Variables latentes clinicas totales
+## Reconstruccion SIN TESTSTERONA
 ```{r}
-factores <- get_factores(sclae = F,modelo)
-pesos <- get_pesos(sclae = F,modelo)
-R <- factores[,1:4] %*% t(pesos[feats,1:4])
+factores <- get_factores(sclae = F,modelo)[,1:4]
+Rc <- cbind(R,clinicas[,-c(6,7)])
+
+funcion_pca(Rc,scle = T,trans = F)
+
+pcx <- prcomp(Rc,scale. = T)
+
+pcxx <- data.frame(PC1=pcx$x[,1],
+                  PC2=pcx$x[,2],
+                  Group=grupo,
+                  Obesity=obesidad,
+                  Subjects = rownames(R))
+varianzas <- round(100*pcx$sdev^2/sum(pcx$sdev^2),2)
+
+p2 <- ggplot(pcxx,aes(PC1,PC2,color=Group,shape=Obesity))+geom_point(size=2)+xlab(paste("PC1",varianzas[1],"%"))+ylab(paste("PC2",varianzas[2],"%")) +facet_grid(~Obesity)
+
+annotate_figure(p2,"Reconstruction WITH  clinical variables  WITHOUT testosterone")
+
+
+```
+
+
+
+```{r}
+factoextra::fviz_pca(pcx,col.vars="cos2")
+factoextra::fviz_contrib(pcx,"var")
+factoextra::fviz_contrib(pcx,"var",axes = 2)
+factoextra::fviz_screeplot(pcx)
+```
+
+
+## Reconstruccion con TESTSTERONA
+```{r}
+factores <- get_factores(sclae = F,modelo)[,1:4]
+Rc <- cbind(R,clinicas[,-c(6,7,10)])
+
+
+pcx <- prcomp(Rc,scale. = T)
+
+pcxx <- data.frame(PC1=pcx$x[,1],
+                  PC2=pcx$x[,2],
+                  Group=grupo,
+                  Obesity=obesidad,
+                  Subjects = rownames(R))
+varianzas <- round(100*pcx$sdev^2/sum(pcx$sdev^2),2)
+
+p2 <- ggplot(pcxx,aes(PC1,PC2,color=Group,shape=Obesity))+geom_point(size=2)+xlab(paste("PC1",varianzas[1],"%"))+ylab(paste("PC2",varianzas[2],"%")) +facet_grid(~Obesity)
+
+annotate_figure(p2,"Reconstruction WITH  clinical variables  WITH testosterone")
+
+
+
+
+
 Rc <- cbind(R,clinicas)
 
-funcion_pca(Rc,scle = T,trans = F)
 
 pcx <- prcomp(Rc,scale. = T)
 
-factoextra::fviz_contrib(pcx,"var")
-factoextra::fviz_contrib(pcx,"var",axes = 2)
-factoextra::fviz_pca_var(pcx )
-```
-## Reconstruccion
+pcxx <- data.frame(PC1=pcx$x[,1],
+                  PC2=pcx$x[,2],
+                  Group=grupo,
+                  Obesity=obesidad,
+                  Subjects = rownames(R))
+varianzas <- round(100*pcx$sdev^2/sum(pcx$sdev^2),2)
 
+p2 <- ggplot(pcxx,aes(PC1,PC2,color=Group,shape=Obesity))+geom_point(size=2)+xlab(paste("PC1",varianzas[1],"%"))+ylab(paste("PC2",varianzas[2],"%")) +facet_grid(~Obesity)
 
-```{r}
-factores <- get_factores(sclae = F,modelo)
-pesos <- get_pesos(sclae = F,modelo)
-R <- factores[,1:4] %*% t(pesos[feats,1:4])
-funcion_pca(R,scle = F,trans = F)[[1]]
-
-pcx <- prcomp((R))
-
-factoextra::fviz_contrib(pcx,"var")
-factoextra::fviz_contrib(pcx,"var",axes = 2)
-factoextra::fviz_pca_var(pcx )
+annotate_figure(p2,"Reconstruction WITH  clinical variables  WITH testosterone")
 
 ```
-## Reconstruccion clinicas sin testosterna
 
 
 
 ```{r}
-factores <- get_factores(sclae = F,modelo)
-pesos <- get_pesos(sclae = F,modelo)
-R <- factores[,1:4] %*% t(pesos[feats,1:4])
-Rc <- cbind(R,clinicas[,-c(6:7)])
-
-funcion_pca(Rc,scle = T,trans = F)
-
-pcx <- prcomp(Rc,scale. = T)
-
+factoextra::fviz_pca(pcx,col.vars="cos2")
 factoextra::fviz_contrib(pcx,"var")
 factoextra::fviz_contrib(pcx,"var",axes = 2)
-factoextra::fviz_pca_var(pcx )
-
+factoextra::fviz_screeplot(pcx)
 ```
-## Reconstruccion con testosterona
-```{r}
-factores <- get_factores(sclae = F,modelo)
-pesos <- get_pesos(sclae = F,modelo)
-R <- factores[,1:4] %*% t(pesos[feats,1:4])
-Rc <- cbind(R,clinicas)
 
-funcion_pca(Rc,scle = T,trans = F)
-
-pcx <- prcomp(Rc,scale. = T)
-
-factoextra::fviz_contrib(pcx,"var")
-factoextra::fviz_contrib(pcx,"var",axes = 2)
-factoextra::fviz_pca_var(pcx )
-```
 
 # Multivariante inferencia
+
+```{r}
+funcion_pca(R,scle = F,trans = F)
+```
+
+
 ```{r}
 
 adonis2(R ~ grupo*obesidad,method = "euclidean")
 adonis2(datos_raw ~ grupo*obesidad,method = "euclidean")
-funcion_multivariante()
 ```
 
 ```{r}
@@ -1459,8 +2042,397 @@ analyze_multivariate(R,grupo,obesidad,sexo)
 ```
 
 ```{r}
-analyze_multivariate(datos_raw[,feats],grupo,obesidad,sexo)
+analyze_multivariate(datos_raw[,feats],grupo,obesidad,sexo)[,1:2]
+analyze_multivariate(R,grupo,obesidad,sexo)[,1:2]
 
 ```
 
+## mejoria de la integracion
+
+```{r}
+
+p1 <-annotate_figure(funcion_pca(datos_raw[,feats],scle = F,trans = F)[[1]],top = "original")
+
+R <- factores[,1:4] %*% t(pesos[feats,1:4])
+
+p2 <- annotate_figure(funcion_pca(R,scle = F,trans = F)[[1]],top = "Reconstructed")
+p1;p2
+```
+
+```{r}
+pcx <- prcomp(R)
+p1 <- factoextra::fviz_pca_contrib(pcx,"var")
+p2 <- factoextra::fviz_pca_contrib(pcx,"var",axes = 2)
+p3 <- factoextra::fviz_screeplot(pcx)
+p4 <- factoextra::fviz_pca_var(pcx)
+
+ggarrange(p1,p2)
+ggarrange(p3,p4)
+
+```
+
+# Univariante
+
+```{r}
+univ.raw <- extract_univ(datos_raw,correc = 2)
+univ.raw <- lapply(univ.raw, as.matrix)
+funcion_cor_F(univ.raw$media,univ.raw$pvalores,titulo = "Original",feats)
+
+univ.raw <- extract_univ(R,correc = 2)
+univ.raw <- lapply(univ.raw, as.matrix)
+funcion_cor_F(univ.raw$media,univ.raw$pvalores,titulo = "Reconstructed",feats)
+```
+
+## PRUEBA
+
+```{r}
+objeto.medianas <- extract_univ(D,2)
+medianas <- objeto.medianas$media
+csa <- corr.test(medianas)
+csa.r <- csa$r
+csa.p <- csa$p
+funcion_cor_F(csa.r,csa.p,vars = NULL,titulo = "csa")
+```
+
+```{r}
+clinicas <- (datos$comunes$variables_in_bacteria[,6:16])
+```
+
+
+```{r}
+csa <- corr.test(R,clinicas)
+csa.r <- csa$r
+csa.p <- csa$p
+funcion_cor_F(csa.r,csa.p,vars = NULL,titulo = "csa")
+```
+
+
+```{r}
+X <- corr.test(R,clinicas)$r
+res_van <- funcion_esp.cor(X)
+
+res_van[2:4] <- p.adjust(res_van[2:4],"BH")
+
+res_van[5:length(res_van)] <- p.adjust(5:length(res_van),"BH")
+
+(res_van <- as.data.frame((res_van)))
+```
+
+
+
+
+```{r}
+obj.p <- mixOmics::pls(clinicas,R,ncomp = 2,mode = "regression")
+
+mdif <- as.data.frame(obj.p$variates$X)
+midf2 <- as.data.frame(obj.p$variates$Y)
+midf <-cbind(mdif,midf2)
+colnames(midf) <- c("X1","X2","Y1","Y2")
+midf <- as.data.frame(midf)
+midf$grupo <- grupo
+
+ggplot(midf,aes(x=Y1,y=Y2,col=grupo))+geom_point()+facet_wrap(obesidad)
+
+```
+
+```{r}
+
+midf <- (obj.p$loadings$X)
+midf2 <- (obj.p$loadings$Y)
+rownames(midf) <- colnames(clinicas)
+rownames(midf2) <- colnames(R)
+corr.test(midf,midf2)
+```
+
+
+
+
+
+```{r}
+csa2 <- prcomp(csa$r)
+csa <- cov(t(R),medianas)
+funcion_pca(csa,trans = F,scle = F)
+
+```
+
+## numero de correlaciones
+
+```{r}
+funcion_summary(cbind(R[,grupo=="PCOS"],clinicas),n = 3)
+funcion_summary(R[grupo=="Male",feats],2)
+
+```
+
+
+```{r}
+d1 <- as.data.frame(t(as.data.frame(funcion_summary(cbind(R,clinicas),3))))
+d2 <- as.data.frame(t(as.data.frame(funcion_summary(cbind(datos_raw[,feats],clinicas),3))))
+
+write.csv(cbind(d1,d2),file = "./resultados/correlaciones_numero.csv")
+```
+
+
+```{r}
+d1 <- as.data.frame(t(as.data.frame(funcion_summary(cbind(R[grupo=="Male",],clinicas),3))))
+d2 <- as.data.frame(t(as.data.frame(funcion_summary(cbind(datos_raw[,feats],clinicas),3))))
+
+write.csv(cbind(d1,d2),file = "./resultados/correlaciones_numero.csv")
+
+
+
+```
+
+
+
+```{r}
+hc <- as.dendrogram(hclust(dist(t(R[obesidad=="Obese",])),method = "ward.D2"))
+plot(hc,main="Obese")
+```
+
+
+```{r}
+hc <- as.dendrogram(hclust(dist(t(R[obesidad=="No Obese",])),method = "ward.D2"))
+plot(hc,main="No Obese")
+```
+
+```{r}
+male <- as.dendrogram(hclust(dist(t(R[grupo=="Male",])),method = "ward.D2"))
+
+female <- as.dendrogram(hclust(dist(t(R[grupo=="Female",])),method = "ward.D2"))
+
+pcos <- as.dendrogram(hclust(dist(t(R[grupo=="PCOS",])),method = "ward.D2"))
+
+obese <- as.dendrogram(hclust(dist(t(R[obesidad=="Obese",])),method = "ward.D2"))
+
+
+noobese <- as.dendrogram(hclust(dist(t(R[obesidad=="No Obese",])),method = "ward.D2"))
+
+noobese.fem <- as.dendrogram(hclust(dist(t(R[grupo[obesidad=="No Obese"]=="Female",])),method = "ward.D2"))
+
+obese.fem <- as.dendrogram(hclust(dist(t(R[grupo[obesidad=="Obese"]=="Female",])),method = "ward.D2"))
+
+
+noobese.mal <- as.dendrogram(hclust(dist(t(R[grupo[obesidad=="No Obese"]=="Male",])),method = "ward.D2"))
+
+
+
+obese.mal <- as.dendrogram(hclust(dist(t(R[grupo[obesidad=="Obese"]=="Male",])),method = "ward.D2"))
+
+
+noobese.pcos <- as.dendrogram(hclust(dist(t(R[grupo[obesidad=="No Obese"]=="PCOS",])),method = "ward.D2"))
+
+
+obese.pcos <- as.dendrogram(hclust(dist(t(R[grupo[obesidad=="Obese"]=="PCOS",])),method = "ward.D2"))
+
+
+
+
+library(ggdendro)
+
+ggdendrogram(male, rotate = TRUE, theme_dendro = FALSE)+xlab("")+ylab("")+ggtitle("Male")
+
+ggdendrogram(female, rotate = TRUE, theme_dendro = FALSE)+xlab("")+ylab("")+ggtitle("Female")
+
+ggdendrogram(pcos, rotate = TRUE, theme_dendro = FALSE)+xlab("")+ylab("")+ggtitle("PCOS")
+
+ggdendrogram(obese, rotate = TRUE, theme_dendro = FALSE)+xlab("")+ylab("")+ggtitle("OBESE")
+
+ggdendrogram(noobese, rotate = TRUE, theme_dendro = FALSE)+xlab("")+ylab("")+ggtitle("NO OBESE")
+
+
+ggdendrogram(noobese.fem, rotate = TRUE, theme_dendro = FALSE)+xlab("")+ylab("")+ggtitle("NO OBESE Female")
+
+
+ggdendrogram(obese.fem, rotate = TRUE, theme_dendro = FALSE)+xlab("")+ylab("")+ggtitle("OBESE Female")
+
+
+ggdendrogram(noobese.pcos, rotate = TRUE, theme_dendro = FALSE)+xlab("")+ylab("")+ggtitle("NO OBESE PCOS")
+
+
+
+ggdendrogram(obese.pcos, rotate = TRUE, theme_dendro = FALSE)+xlab("")+ylab("")+ggtitle("OBESE PCOS")
+
+
+ggdendrogram(noobese.mal, rotate = TRUE, theme_dendro = FALSE)+xlab("")+ylab("")+ggtitle("NO OBESE MALE")
+
+
+
+ggdendrogram(obese.mal, rotate = TRUE, theme_dendro = FALSE)+xlab("")+ylab("")+ggtitle("OBESE MASLE")
+```
+
+
+```{r}
+
+male <- as.dendrogram(hclust(dist(t(R[grupo=="Male",])),method = "ward.D2"))
+
+female <- as.dendrogram(hclust(dist(t(R[grupo=="Female",])),method = "ward.D2"))
+
+pcos <- as.dendrogram(hclust(dist(t(R[grupo=="PCOS",])),method = "ward.D2"))
+
+obese <- as.dendrogram(hclust(dist(t(R[obesidad=="Obese",])),method = "ward.D2"))
+
+
+noobese <- as.dendrogram(hclust(dist(t(R[obesidad=="No Obese",])),method = "ward.D2"))
+
+noobese.fem <- as.dendrogram(hclust(dist(t(R[grupo[obesidad=="No Obese"]=="Female",])),method = "ward.D2"))
+
+obese.fem <- as.dendrogram(hclust(dist(t(R[grupo[obesidad=="Obese"]=="Female",])),method = "ward.D2"))
+
+
+noobese.mal <- as.dendrogram(hclust(dist(t(R[grupo[obesidad=="No Obese"]=="Male",])),method = "ward.D2"))
+
+
+
+obese.mal <- as.dendrogram(hclust(dist(t(R[grupo[obesidad=="Obese"]=="Male",])),method = "ward.D2"))
+
+
+noobese.pcos <- as.dendrogram(hclust(dist(t(R[grupo[obesidad=="No Obese"]=="PCOS",])),method = "ward.D2"))
+
+
+obese.pcos <- as.dendrogram(hclust(dist(t(R[grupo[obesidad=="Obese"]=="PCOS",])),method = "ward.D2"))
+
+
+
+
+library(ggdendro)
+
+ggdendrogram(male, rotate = TRUE, theme_dendro = FALSE)+xlab("")+ylab("")+ggtitle("Male")
+
+ggdendrogram(female, rotate = TRUE, theme_dendro = FALSE)+xlab("")+ylab("")+ggtitle("Female")
+
+ggdendrogram(pcos, rotate = TRUE, theme_dendro = FALSE)+xlab("")+ylab("")+ggtitle("PCOS")
+
+ggdendrogram(obese, rotate = TRUE, theme_dendro = FALSE)+xlab("")+ylab("")+ggtitle("OBESE")
+
+ggdendrogram(noobese, rotate = TRUE, theme_dendro = FALSE)+xlab("")+ylab("")+ggtitle("NO OBESE")
+
+
+ggdendrogram(noobese.fem, rotate = TRUE, theme_dendro = FALSE)+xlab("")+ylab("")+ggtitle("NO OBESE Female")
+
+
+ggdendrogram(obese.fem, rotate = TRUE, theme_dendro = FALSE)+xlab("")+ylab("")+ggtitle("OBESE Female")
+
+
+ggdendrogram(noobese.pcos, rotate = TRUE, theme_dendro = FALSE)+xlab("")+ylab("")+ggtitle("NO OBESE PCOS")
+
+
+
+ggdendrogram(obese.pcos, rotate = TRUE, theme_dendro = FALSE)+xlab("")+ylab("")+ggtitle("OBESE PCOS")
+
+
+ggdendrogram(noobese.mal, rotate = TRUE, theme_dendro = FALSE)+xlab("")+ylab("")+ggtitle("NO OBESE MALE")
+
+
+
+ggdendrogram(obese.mal, rotate = TRUE, theme_dendro = FALSE)+xlab("")+ylab("")+ggtitle("OBESE MASLE")
+```
+
+
+```{r}
+R. <- factores[,1:4] %*% t(pesos[feats,1:4])
+R  <- cbind(R,clinicas)
+male <- (as.dendrogram(hclust(dist(t(scale(R[grupo=="Male",]))),method = "ward.D2")),k=2)
+
+female <- as.dendrogram(hclust(dist(t(scale(R[grupo=="Female",]))),method = "ward.D2"))
+
+pcos <- as.dendrogram(hclust(dist(t(scale(R[grupo=="PCOS",]))),method = "ward.D2"))
+
+obese <- as.dendrogram(hclust(dist(t(scale(R[obesidad=="Obese",]))),method = "ward.D2"))
+
+
+noobese <- as.dendrogram(hclust(dist(t(scale(R[obesidad=="No Obese",]))),method = "ward.D2"))
+
+noobese.fem <- as.dendrogram(hclust(dist(t(scale(R[grupo[obesidad=="No Obese"]=="Female",]))),method = "ward.D2"))
+
+obese.fem <- as.dendrogram(hclust(dist(t(scale(R[grupo[obesidad=="Obese"]=="Female",]))),method = "ward.D2"))
+
+
+noobese.mal <- as.dendrogram(hclust(dist(t(scale(R[grupo[obesidad=="No Obese"]=="Male",]))),method = "ward.D2"))
+
+
+
+obese.mal <- as.dendrogram(hclust(dist(t(scale(R[grupo[obesidad=="Obese"]=="Male",]))),method = "ward.D2"))
+
+
+noobese.pcos <- as.dendrogram(hclust(dist(t(scale(R[grupo[obesidad=="No Obese"]=="PCOS",]))),method = "ward.D2"))
+
+
+obese.pcos <- as.dendrogram(hclust(dist(t(scale(R[grupo[obesidad=="Obese"]=="PCOS",]))),method = "ward.D2"))
+
+
+
+
+library(ggdendro)
+
+ggdendrogram(male, rotate = TRUE, theme_dendro = FALSE)+xlab("")+ylab("")+ggtitle("Male")
+
+ggdendrogram(female, rotate = TRUE, theme_dendro = FALSE)+xlab("")+ylab("")+ggtitle("Female")
+
+ggdendrogram(pcos, rotate = TRUE, theme_dendro = FALSE)+xlab("")+ylab("")+ggtitle("PCOS")
+
+ggdendrogram(obese, rotate = TRUE, theme_dendro = FALSE)+xlab("")+ylab("")+ggtitle("OBESE")
+
+ggdendrogram(noobese, rotate = TRUE, theme_dendro = FALSE)+xlab("")+ylab("")+ggtitle("NO OBESE")
+
+
+ggdendrogram(noobese.fem, rotate = TRUE, theme_dendro = FALSE)+xlab("")+ylab("")+ggtitle("NO OBESE Female")
+
+
+ggdendrogram(obese.fem, rotate = TRUE, theme_dendro = FALSE)+xlab("")+ylab("")+ggtitle("OBESE Female")
+
+
+ggdendrogram(noobese.pcos, rotate = TRUE, theme_dendro = FALSE)+xlab("")+ylab("")+ggtitle("NO OBESE PCOS")
+
+
+
+ggdendrogram(obese.pcos, rotate = TRUE, theme_dendro = FALSE)+xlab("")+ylab("")+ggtitle("OBESE PCOS")
+
+
+ggdendrogram(noobese.mal, rotate = TRUE, theme_dendro = FALSE)+xlab("")+ylab("")+ggtitle("NO OBESE MALE")
+
+
+
+ggdendrogram(obese.mal, rotate = TRUE, theme_dendro = FALSE)+xlab("")+ylab("")+ggtitle("OBESE MASLE")
+```
+
+
+```{r}
+csa <- dendlist(obese,noobese,female,male,pcos,noobese.fem,noobese.mal,noobese.pcos,obese.fem,obese.mal,obese.pcos)
+cor.dendlist(csa)
+```
+
+
+```{r}
+csa <- dendlist(obese.fem,obese.mal)
+cor.dendlist(csa, method = "cophenetic")
+```
+```{r}
+dendlist(obese=obese, noobese=noobese) %>%
+  untangle(method = "step1side") %>% # Find the best alignment layout
+  tanglegram() 
+```
+
+```{r}
+dendlist(female=female, male=male) %>%
+  untangle(method = "step1side") %>% # Find the best alignment layout
+  tanglegram() 
+```
+
+```{r}
+multivariante.R <- analyze_multivariate(D,grupo,obesidad,sexo)[,1:2]
+
+multivariante.D <- analyze_multivariate(R,grupo,obesidad,sexo)[,1:2]
+
+comp <- cbind(multivariante.D,multivariante.R)
+write.csv(comp,"~/Desktop/multivariante_inf.csv")
+```
+
+```{r}
+multivariante.R <- analyze_multivariate(cbind(D,clinicas),grupo,obesidad,sexo)[,1:2]
+
+multivariante.D <- analyze_multivariate(cbind(R,clinicas),grupo,obesidad,sexo)[,1:2]
+
+comp <- cbind(multivariante.D,multivariante.R)
+write.csv(comp,"~/Desktop/multivariante_inf.csv")
+```
 

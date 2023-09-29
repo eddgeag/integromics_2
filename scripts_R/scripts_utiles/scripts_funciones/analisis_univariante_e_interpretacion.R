@@ -6,7 +6,7 @@ library(data.table)
 library(DescTools)
 
 
-source("../scripts_R/scripts_utiles/scripts_funciones/otras_funciones_utiles.R")
+source("./scripts_R/scripts_utiles/scripts_funciones/otras_funciones_utiles.R")
 panova <-
   function(x)
     summary(aovp(
