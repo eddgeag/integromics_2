@@ -820,6 +820,8 @@ R <- factores %*% t(pesos)
 
 funcion_pca(R,trans = F,scle = F)[[1]]
 
+
+
 vanValen.test(R,obesidad)
 vanValen.test(R,grupo)
 vanValen.test(R,interaction(grupo,obesidad))
@@ -1146,8 +1148,6 @@ funcion_cor(x = R[grupo=="PCOS",],titulo = "PCOS Reconstucted")
 funcion_cor(x = R[grupo=="Male",],titulo = "Male Reconstucted")
 
 ```
-
-
 
 ```{r}
 
@@ -1528,7 +1528,6 @@ res_van[5:length(res_van)] <- p.adjust(5:length(res_van),"BH")
 
 ```
 
-
 ## comparacion
 
 ```{r}
@@ -1816,8 +1815,6 @@ vanValen.test2(obfemale,obpcos)
 
 # Multivariante
 
-
-
 ```{r}
 D <- datos_raw[,feats]
 annotate_figure(funcion_pca(D,trans = F,scle = F)[[1]],
@@ -1825,7 +1822,6 @@ annotate_figure(funcion_pca(D,trans = F,scle = F)[[1]],
 annotate_figure(funcion_pca(R,trans = F,scle = F)[[1]],
                 top="Reconstruction")
 ```
-
 
 ```{r}
 library(ggrepel)
@@ -1873,7 +1869,6 @@ factoextra::fviz_screeplot(pcx)
 
 ```
 
-
 ## Variables Latentes solas
 
 ```{r}
@@ -1899,8 +1894,6 @@ annotate_figure(p2,"Latent Factors WITH  clinical variables and WITH testosteron
 
 ```
 
-
-
 ```{r}
 factoextra::fviz_pca(pcx,col.vars="cos2")
 factoextra::fviz_contrib(pcx,"var")
@@ -1909,6 +1902,7 @@ factoextra::fviz_screeplot(pcx)
 ```
 
 ## Variables latentes SIN TESTSTERONA
+
 ```{r}
 
 factores <- get_factores(sclae = F,modelo)[,1:4]
@@ -1932,15 +1926,15 @@ annotate_figure(p2,"Latent factors WITH  clinical variables  WITHOUT testosteron
 
 ```
 
-
-
 ```{r}
 factoextra::fviz_pca(pcx,col.vars="cos2")
 factoextra::fviz_contrib(pcx,"var")
 factoextra::fviz_contrib(pcx,"var",axes = 2)
 factoextra::fviz_screeplot(pcx)
 ```
+
 ## Reconstruccion SIN TESTSTERONA
+
 ```{r}
 factores <- get_factores(sclae = F,modelo)[,1:4]
 Rc <- cbind(R,clinicas[,-c(6,7)])
@@ -1963,8 +1957,6 @@ annotate_figure(p2,"Reconstruction WITH  clinical variables  WITHOUT testosteron
 
 ```
 
-
-
 ```{r}
 factoextra::fviz_pca(pcx,col.vars="cos2")
 factoextra::fviz_contrib(pcx,"var")
@@ -1972,8 +1964,8 @@ factoextra::fviz_contrib(pcx,"var",axes = 2)
 factoextra::fviz_screeplot(pcx)
 ```
 
-
 ## Reconstruccion con TESTSTERONA
+
 ```{r}
 factores <- get_factores(sclae = F,modelo)[,1:4]
 Rc <- cbind(R,clinicas[,-c(6,7,10)])
@@ -2014,8 +2006,6 @@ annotate_figure(p2,"Reconstruction WITH  clinical variables  WITH testosterone")
 
 ```
 
-
-
 ```{r}
 factoextra::fviz_pca(pcx,col.vars="cos2")
 factoextra::fviz_contrib(pcx,"var")
@@ -2023,13 +2013,11 @@ factoextra::fviz_contrib(pcx,"var",axes = 2)
 factoextra::fviz_screeplot(pcx)
 ```
 
-
 # Multivariante inferencia
 
 ```{r}
 funcion_pca(R,scle = F,trans = F)
 ```
-
 
 ```{r}
 
@@ -2098,14 +2086,12 @@ funcion_cor_F(csa.r,csa.p,vars = NULL,titulo = "csa")
 clinicas <- (datos$comunes$variables_in_bacteria[,6:16])
 ```
 
-
 ```{r}
 csa <- corr.test(R,clinicas)
 csa.r <- csa$r
 csa.p <- csa$p
 funcion_cor_F(csa.r,csa.p,vars = NULL,titulo = "csa")
 ```
-
 
 ```{r}
 X <- corr.test(R,clinicas)$r
@@ -2117,9 +2103,6 @@ res_van[5:length(res_van)] <- p.adjust(5:length(res_van),"BH")
 
 (res_van <- as.data.frame((res_van)))
 ```
-
-
-
 
 ```{r}
 obj.p <- mixOmics::pls(clinicas,R,ncomp = 2,mode = "regression")
@@ -2144,10 +2127,6 @@ rownames(midf2) <- colnames(R)
 corr.test(midf,midf2)
 ```
 
-
-
-
-
 ```{r}
 csa2 <- prcomp(csa$r)
 csa <- cov(t(R),medianas)
@@ -2163,14 +2142,12 @@ funcion_summary(R[grupo=="Male",feats],2)
 
 ```
 
-
 ```{r}
 d1 <- as.data.frame(t(as.data.frame(funcion_summary(cbind(R,clinicas),3))))
 d2 <- as.data.frame(t(as.data.frame(funcion_summary(cbind(datos_raw[,feats],clinicas),3))))
 
 write.csv(cbind(d1,d2),file = "./resultados/correlaciones_numero.csv")
 ```
-
 
 ```{r}
 d1 <- as.data.frame(t(as.data.frame(funcion_summary(cbind(R[grupo=="Male",],clinicas),3))))
@@ -2182,13 +2159,10 @@ write.csv(cbind(d1,d2),file = "./resultados/correlaciones_numero.csv")
 
 ```
 
-
-
 ```{r}
 hc <- as.dendrogram(hclust(dist(t(R[obesidad=="Obese",])),method = "ward.D2"))
 plot(hc,main="Obese")
 ```
-
 
 ```{r}
 hc <- as.dendrogram(hclust(dist(t(R[obesidad=="No Obese",])),method = "ward.D2"))
@@ -2260,7 +2234,6 @@ ggdendrogram(noobese.mal, rotate = TRUE, theme_dendro = FALSE)+xlab("")+ylab("")
 ggdendrogram(obese.mal, rotate = TRUE, theme_dendro = FALSE)+xlab("")+ylab("")+ggtitle("OBESE MASLE")
 ```
 
-
 ```{r}
 
 male <- as.dendrogram(hclust(dist(t(R[grupo=="Male",])),method = "ward.D2"))
@@ -2326,7 +2299,6 @@ ggdendrogram(noobese.mal, rotate = TRUE, theme_dendro = FALSE)+xlab("")+ylab("")
 
 ggdendrogram(obese.mal, rotate = TRUE, theme_dendro = FALSE)+xlab("")+ylab("")+ggtitle("OBESE MASLE")
 ```
-
 
 ```{r}
 R. <- factores[,1:4] %*% t(pesos[feats,1:4])
@@ -2395,17 +2367,16 @@ ggdendrogram(noobese.mal, rotate = TRUE, theme_dendro = FALSE)+xlab("")+ylab("")
 ggdendrogram(obese.mal, rotate = TRUE, theme_dendro = FALSE)+xlab("")+ylab("")+ggtitle("OBESE MASLE")
 ```
 
-
 ```{r}
 csa <- dendlist(obese,noobese,female,male,pcos,noobese.fem,noobese.mal,noobese.pcos,obese.fem,obese.mal,obese.pcos)
 cor.dendlist(csa)
 ```
 
-
 ```{r}
 csa <- dendlist(obese.fem,obese.mal)
 cor.dendlist(csa, method = "cophenetic")
 ```
+
 ```{r}
 dendlist(obese=obese, noobese=noobese) %>%
   untangle(method = "step1side") %>% # Find the best alignment layout
@@ -2435,4 +2406,3 @@ multivariante.D <- analyze_multivariate(cbind(R,clinicas),grupo,obesidad,sexo)[,
 comp <- cbind(multivariante.D,multivariante.R)
 write.csv(comp,"~/Desktop/multivariante_inf.csv")
 ```
-

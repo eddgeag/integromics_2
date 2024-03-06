@@ -1,0 +1,4286 @@
+---
+title: "Univariante Y Bivariante"
+format: html
+editor: visual
+---
+
+```{r}
+library(ggplot2)
+library(psych)
+library(limma)
+library(car)
+library(mixOmics)
+library(vegan)
+library(ggpubr)
+library(MOFA2)
+library(dplyr)
+library(ALDEx2)
+library(MOFA2)
+source("../scripts_R/scripts_utiles/scripts_funciones/vanvalen2.R")
+source("../scripts_R/scripts_utiles/scripts_funciones/manova_vanvalen.R")
+mean_aldex <- function(X) {
+  mc.all <- getMonteCarloInstances(X)
+  mc.instances <- numMCInstances(X)
+  row_mean <- function(y)
+    apply(y, 1, mean)
+  X <- data.frame(bind_rows(lapply(mc.all, row_mean)))
+  rownames(X) <- names(mc.all)
+  return(as.data.frame(t(X)))
+}
+analyze_multivariate <- function(X,grupo,obesidad,sexo){
+  
+  pmanova.int <-
+    adonis2(X ~ grupo * obesidad, by = "margin", method = "euclidean")$`Pr(>F)`[1]
+  pmanova.grupo <-
+    adonis2(X ~ grupo, by = "margin", method = "euclidean")$`Pr(>F)`[1]
+  
+  ## vemos grupo
+  fm <- adonis2(X[grupo != "PCOS", ] ~ whichnot(grupo, "PCOS"),
+                method = "euclidean", by = "margin")$`Pr(>F)`[1]
+  fp <- adonis2(X[grupo != "Male", ] ~ whichnot(grupo, "Male"),
+                method = "euclidean", by = "margin")$`Pr(>F)`[1]
+  mp <- adonis2(X[grupo != "Female", ] ~ whichnot(grupo, "Female"),
+                method = "euclidean",
+                by = "margin")$`Pr(>F)`[1]
+  ## vemos obesidad
+  obe <-
+    adonis2(X ~ obesidad, method = "euclidean", by = "margin")$`Pr(>F)`[1]
+  ## vemos grupo dado la obesidad
+  
+  fm.o <-
+    adonis2(X[grupo != "PCOS" &
+                obesidad == "Obese", ] ~ whichnot.ob(grupo, "PCOS", "Obese"),
+            method = "euclidean",
+            by = "margin")$`Pr(>F)`[1]
+  fp.o <-
+    adonis2(X[grupo != "Male" &
+                obesidad == "Obese", ] ~ whichnot.ob(grupo, "Male", "Obese"),
+            method = "euclidean",
+            by = "margin")$`Pr(>F)`[1]
+  mp.o <-
+    adonis2(X[grupo != "Female" &
+                obesidad == "Obese", ] ~ whichnot.ob(grupo, "Female", "Obese"),
+            method = "euclidean",
+            by = "margin")$`Pr(>F)`[1]
+  
+  
+  fm.no <-
+    adonis2(X[grupo != "PCOS" &
+                obesidad == "No Obese", ] ~ whichnot.ob(grupo, "PCOS", "No Obese"),
+            method = "euclidean",
+            by = "margin")$`Pr(>F)`[1]
+  fp.no <-
+    adonis2(X[grupo != "Male" &
+                obesidad == "No Obese", ] ~ whichnot.ob(grupo, "Male", "No Obese"),
+            method = "euclidean",
+            by = "margin")$`Pr(>F)`[1]
+  mp.no <-
+    adonis2(X[grupo != "Female" &
+                obesidad == "No Obese", ] ~ whichnot.ob(grupo, "Female", "No Obese"),
+            method = "euclidean",
+            by = "margin")$`Pr(>F)`[1]
+  
+  
+  ## vemos la obesidad dado el grupo
+  
+  pcos <- adonis2(X[grupo == "PCOS", ] ~ whichis(grupo, obesidad, "PCOS"),
+                  method = "euclidean",
+                  by = "margin")$`Pr(>F)`[1]
+  
+  females <-
+    adonis2(X[grupo == "Female", ] ~ whichis(grupo, obesidad, "Female"),
+            method = "euclidean",
+            by = "margin")$`Pr(>F)`[1]
+  
+  males <- adonis2(X[grupo == "Male", ] ~ whichis(grupo, obesidad, "Male"),
+                   method = "euclidean",
+                   by = "margin")$`Pr(>F)`[1]
+  sex <- adonis2(X~sexo,by="margin",method="euclidean")$`Pr(>F)`[1]
+  
+  resultado <- c(
+    obesidad = obe,
+    grupo = pmanova.grupo,
+    sexo = sex,
+    females_pcos = fp,
+    females_males = fm,
+    males_pcos = mp,
+    interaccion = pmanova.int,
+    females_pcos_obese = fp.o,
+    females_males_obese = fm.o,
+    males_pcos_obese = mp.o,
+    females_pcos_Noobese = fp.no,
+    females_males_Noobese = fm.no,
+    males_pcos_Noobese = mp.no,
+    pcos = pcos,
+    females = females,
+    males = males
+  )
+  
+  resultado.df <- data.frame(p.values=resultado)
+  resultado.df$p.adj <- c(resultado.df$p.values[1:3],
+                          p.adjust(resultado.df$p.values[4:5],"BH"),
+                          resultado.df$p.values[6:7],
+                          p.adjust(resultado.df$p.values[8:length(resultado.df$p.values)],
+                                   "BH"))
+  resultado.df$significancia <- ifelse(resultado.df$p.values<0.05,resultado.df$p.values,NA)
+  resultado.df$significancia.adj <- ifelse(resultado.df$p.adj<0.05,resultado.df$p.adj,NA)
+  
+  return(resultado.df)
+}
+
+funcion_pca <- function(X, scle, trans) {
+  if (!trans) {
+    pca <- prcomp(X, scale. = scle)
+    
+    varianzas <- round(100 * pca$sdev ^ 2 / sum(pca$sdev ^ 2), 2)
+    pca.plot <- data.frame(
+      PC1 = pca$x[, 1],
+      PC2 = pca$x[, 2],
+      obesidad = obesidad,
+      grupo = grupo,
+      sexo = sexo
+    )
+  } else{
+    X <- t(scale(X))
+    pca <- prcomp((X), scale. = scle)
+    
+    varianzas <- round(100 * pca$sdev ^ 2 / sum(pca$sdev ^ 2), 2)
+    pca.plot <- data.frame(
+      PC1 = pca$rotation[, 1],
+      PC2 = pca$rotation[, 2],
+      obesidad = obesidad,
+      grupo = grupo,
+      sexo = sexo
+    )
+  }
+  
+  p1 <-
+    ggplot(pca.plot, aes(PC1, PC2, color = grupo)) + geom_point() + xlab(paste("PC1", varianzas[1],"%")) +
+    ylab(paste("PC2", varianzas[2],"%"))
+  p2 <-
+    ggplot(pca.plot, aes(PC1, PC2, color = grupo)) + geom_point() + xlab(paste("PC1", varianzas[1],"%")) +
+    ylab(paste("PC2", varianzas[2],"%")) + facet_grid(~ obesidad)
+  p3 <-
+    ggplot(pca.plot, aes(PC1, PC2, color = sexo)) + geom_point() + xlab(paste("PC1", varianzas[1],"%")) +
+    ylab(paste("PC2", varianzas[2],"%")) + facet_grid(~ obesidad)
+  p4 <- ggarrange(p1, p2, p3)
+  p1 <-
+    ggplot(pca.plot, aes(PC1, PC2, color = obesidad)) + xlab(paste("PC1", varianzas[1],"%")) +
+    ylab(paste("PC2", varianzas[2],"%")) + geom_point()
+  p2 <-
+    ggplot(pca.plot, aes(PC1, PC2, color = obesidad)) + xlab(paste("PC1", varianzas[1],"%")) +
+    ylab(paste("PC2", varianzas[2],"%")) + geom_point() + facet_grid(~ grupo)
+  p3 <-
+    ggplot(pca.plot, aes(PC1, PC2, color = obesidad)) + xlab(paste("PC1", varianzas[1],"%")) +
+    ylab(paste("PC2", varianzas[2],"%")) + geom_point() + facet_grid(~ sexo)
+  
+  
+  p5 <- ggarrange(p1, p2, p3)
+  p1 <-
+    ggplot(pca.plot, aes(PC1, PC2, color = sexo)) + xlab(paste("PC1", varianzas[1],"%")) +
+    ylab(paste("PC2", varianzas[2],"%")) + geom_point()
+  p2 <-
+    ggplot(pca.plot, aes(PC1, PC2, color = sexo)) + xlab(paste("PC1", varianzas[1],"%")) +
+    ylab(paste("PC2", varianzas[2],"%")) + geom_point() + facet_grid(~ grupo)
+  p3 <-
+    ggplot(pca.plot, aes(PC1, PC2, color = sexo)) + xlab(paste("PC1", varianzas[1],"%")) +
+    ylab(paste("PC2", varianzas[2],"%")) + geom_point() + facet_grid(~ sexo)
+  
+  
+  p6 <- ggarrange(p1, p2, p3)
+  
+  return(list(p4, p5, p6))
+}
+
+seleccion_feat_1 <- function(modelo,view,umbral,factores){
+  
+  x <- get_weights(modelo,views = view,scale = T,abs=T,factors = factores)[[1]]
+  retorno <- rownames(x)[apply(x, 1, function(x) (any(x>umbral)))]
+  return(retorno)
+}
+
+seleccion_feat_obesidad <- function(modelo) {
+  pesos <- Reduce(rbind, get_weights(modelo, scale = F))
+  factores <- get_factors(modelo, scale = F)[[1]]
+  R <- factores %*% t(pesos)
+  
+  tot <- as.data.frame(R)
+  
+  interaccion <- interaction(grupo, obesidad)
+
+  
+  mdl2 <- model.matrix( ~ 0 + obesidad)
+  colnames(mdl2) <-c("No","O")
+  contraste <- c("O-No")
+
+  contrastes <-
+    makeContrasts(contrasts = contraste, levels = colnames(mdl2))
+  fit <- lmFit(t(tot), design = mdl2)
+  fit2 <- contrasts.fit(fit, contrastes)
+  fit2 <- eBayes(fit2)
+  coeficientes <- coef(fit2)
+  cn <- dim(coeficientes)[2]
+  res.pdf <-
+    lapply(1:cn, function(x)
+      topTable(fit2, coef = x, number = Inf))
+  res.pdf2 <-
+    as.data.frame(Reduce("cbind", (lapply(res.pdf, function(x)
+      x$P.Value))))
+  colnames(res.pdf2) <- "Obesidad"
+  rownames(res.pdf2) <- rownames(coeficientes)
+  truetrue <- res.pdf2 < 0.01
+  probamos <- names(which(apply(truetrue, 1, any)==T))
+  
+  return(probamos)
+  
+}
+
+seleccion_feat_grupo <- function(modelo) {
+  pesos <- Reduce(rbind, get_weights(modelo, scale = F))
+  factores <- get_factors(modelo, scale = F)[[1]]
+  R <- factores %*% t(pesos)
+  
+  tot <- as.data.frame(R)
+
+  mdl2 <- model.matrix( ~ 0 + grupo)
+  colnames(mdl2) <-c("Female","PCOS","Male")
+  contraste <- c("PCOS-Female","PCOS-Male","Male-Female")
+
+  contrastes <-
+    makeContrasts(contrasts = contraste, levels = colnames(mdl2))
+  fit <- lmFit(t(tot), design = mdl2)
+  fit2 <- contrasts.fit(fit, contrastes)
+  fit2 <- eBayes(fit2)
+  coeficientes <- coef(fit2)
+  cn <- dim(coeficientes)[2]
+  res.pdf <-
+    lapply(1:cn, function(x)
+      topTable(fit2, coef = x, number = Inf))
+  res.pdf2 <-
+    as.data.frame(Reduce("cbind", (lapply(res.pdf, function(x)
+      x$P.Value	
+))))
+  colnames(res.pdf2) <- c("PF","PM","MF")
+  rownames(res.pdf2) <- rownames(coeficientes)
+  truetrue <- res.pdf2 < 0.01
+  probamos <- names(which(apply(truetrue, 1, any)==T))
+  
+  return(probamos)
+  
+}
+
+
+seleccion_feat_interaccion<- function(modelo) {
+  pesos <- Reduce(rbind, get_weights(modelo, scale = F))
+  factores <- get_factors(modelo, scale = F)[[1]]
+  R <- factores %*% t(pesos)
+  
+  tot <- as.data.frame(R)
+  interaccion <- interaction(grupo,obesidad)
+  mdl2 <- model.matrix( ~ 0 + interaccion)
+  
+  colnames(mdl2) <- gsub("interaccion", "", colnames(mdl2))
+  colnames(mdl2) <- c("FNO","PCOSNO","MALENO","FO","PCOSO","MALEO")
+  contraste <- c(
+    no_pcos_female = "PCOSNO-FNO",
+    no_pcos_male = "PCOSNO-MALENO",
+    no_sexo_control = "MALENO-FNO",
+    o_pcos_female = "PCOSO-FO",
+    o_pcos_male = "PCOSO-MALEO",
+    o_sexo_control = "MALEO-FO",
+    pcos = "PCOSO-PCOSNO",
+    male = "MALEO-MALENO",
+    female = "FO-FNO"
+  )
+  
+  colnames(mdl2) <- gsub("interaccion", "", colnames(mdl2))
+  
+  contrastes <-
+    makeContrasts(contrasts = contraste, levels = colnames(mdl2))
+  fit <- lmFit(t(tot), design = mdl2)
+  fit2 <- contrasts.fit(fit, contrastes)
+  fit2 <- eBayes(fit2)
+  coeficientes <- coef(fit2, Inf)
+  cn <- dim(coeficientes)[2]
+  res.pdf <-
+    lapply(1:cn, function(x)
+      topTable(fit2, coef = x, number = Inf))
+  res.pdf2 <-
+    Reduce("cbind", (lapply(res.pdf, function(x)
+      x$P.Value)))
+  rownames(res.pdf2) <- rownames(coeficientes)
+  colnames(res.pdf2) <- colnames(coeficientes)
+  truetrue <- res.pdf2 < 0.01
+  probamos <- names(which(apply(truetrue, 1, any)==T))
+  
+  return(probamos)
+}
+
+misuper <- function(tot,biomarcadores){
+  
+  ### obesidad
+  
+  tot <- tot[,biomarcadores]
+  
+  mdl2 <- model.matrix( ~ 0 + obesidad)
+  colnames(mdl2) <-c("No","O")
+  contraste <- c("O-No")
+
+  contrastes <-
+    makeContrasts(contrasts = contraste, levels = colnames(mdl2))
+  fit <- lmFit(t(tot), design = mdl2)
+  fit2 <- contrasts.fit(fit, contrastes)
+  fit2 <- eBayes(fit2)
+  coeficientes <- coef(fit2)
+  coeficientes.obesidad <- coeficientes
+  cn <- dim(coeficientes)[2]
+  res.pdf <-
+    lapply(1:cn, function(x)
+      topTable(fit2, coef = x, number = Inf))
+  res.pdf2 <-
+    as.data.frame(Reduce("cbind", (lapply(res.pdf, function(x)
+      x$P.Value))))
+  colnames(res.pdf2) <- "O.No"
+  rownames(res.pdf2) <- rownames(coeficientes)
+  obese <- res.pdf2
+  
+  mdl2 <- model.matrix( ~ 0 + grupo)
+  colnames(mdl2) <-c("Female","PCOS","Male")
+  contraste <- c("PCOS-Female","PCOS-Male","Male-Female")
+
+  contrastes <-
+    makeContrasts(contrasts = contraste, levels = colnames(mdl2))
+  fit <- lmFit(t(tot), design = mdl2)
+  fit2 <- contrasts.fit(fit, contrastes)
+  fit2 <- eBayes(fit2)
+  coeficientes <- coef(fit2)
+  coefficientes.grupo <- coeficientes
+  cn <- dim(coeficientes)[2]
+  res.pdf <-
+    lapply(1:cn, function(x)
+      topTable(fit2, coef = x, number = Inf))
+  res.pdf2 <-
+    as.data.frame(Reduce("cbind", (lapply(res.pdf, function(x)
+      x$P.Value	
+))))
+  colnames(res.pdf2) <- c("PF","PM","MF")
+  rownames(res.pdf2) <- rownames(coeficientes)
+  
+  grups <- res.pdf2
+  
+  interaccion <- interaction(grupo,obesidad)
+  mdl2 <- model.matrix( ~ 0 + interaccion)
+  
+  colnames(mdl2) <- gsub("interaccion", "", colnames(mdl2))
+  colnames(mdl2) <- c("FNO","PCOSNO","MALENO","FO","PCOSO","MALEO")
+  contraste <- c(
+    no_pcos_female = "PCOSNO-FNO",
+    no_pcos_male = "PCOSNO-MALENO",
+    no_sexo_control = "MALENO-FNO",
+    o_pcos_female = "PCOSO-FO",
+    o_pcos_male = "PCOSO-MALEO",
+    o_sexo_control = "MALEO-FO",
+    pcos = "PCOSO-PCOSNO",
+    male = "MALEO-MALENO",
+    female = "FO-FNO"
+  )
+  
+  colnames(mdl2) <- gsub("interaccion", "", colnames(mdl2))
+  
+  contrastes <-
+    makeContrasts(contrasts = contraste, levels = colnames(mdl2))
+  fit <- lmFit(t(tot), design = mdl2)
+  fit2 <- contrasts.fit(fit, contrastes)
+  fit2 <- eBayes(fit2)
+  coeficientes <- coef(fit2, Inf)
+  coeficientes.interact <- coeficientes
+  cn <- dim(coeficientes)[2]
+  res.pdf <-
+    lapply(1:cn, function(x)
+      topTable(fit2, coef = x, number = Inf))
+  res.pdf2 <-
+    Reduce("cbind", (lapply(res.pdf, function(x)
+      x$adj.P.Val)))
+  rownames(res.pdf2) <- rownames(coeficientes)
+  colnames(res.pdf2) <- colnames(coeficientes)
+  interact <- res.pdf2
+  
+  pvalores <- data.frame(obese,
+                       grups,
+                       interact)
+  
+  medias <- data.frame(coeficientes.obesidad,
+                       coefficientes.grupo,
+                       coeficientes.interact)
+  colnames(pvalores) <- colnames(medias)
+  medias$variables <- rownames(medias)
+  pvalores$variables <- rownames(pvalores)
+  retorno <- list(pvalores=pvalores,
+                  medias=medias)
+ 
+}
+
+fun_plot_limma <- function(R,biomarcadores,titulo) {
+  lista.results <- misuper(R, biomarcadores)
+  medias <- lista.results$medias
+  medias$categoria <-
+    ifelse(rownames(medias) %in% rownames(modelo@data$metaboloma$group1),
+           1,
+           "OTHER")
+  medias$categoria <-
+    ifelse(rownames(medias) %in% rownames(modelo@data$ip$group1),
+           2,
+           medias$categoria)
+  medias$categoria <-
+    ifelse(rownames(medias) %in% rownames(modelo@data$metagenoma$group1),
+           3,
+           medias$categoria)
+  medias$categoria <- as.factor(medias$categoria)
+  medias <- reshape2::melt(medias)
+  medias$variables <- as.factor(medias$variables)
+  medias$categoria <- as.numeric(medias$categoria)
+  # colnames(csa) <-c("variables","sujetos","categoria","")
+  pvalues <- lista.results$pvalores
+  pvalues <- reshape2::melt(pvalues)
+  
+  medias$text <- ifelse(pvalues$value < 0.05, "*", "")
+  p1 <- ggplot(medias, aes(
+    reorder(variables, categoria),
+    variable,
+    fill = value,
+    label = text
+  )) + geom_tile() + scale_fill_gradient2(low = "red",
+                                          high = "blue",
+                                          mid = "white") + theme(axis.text.x = element_text(
+                                            angle = 90,
+                                            vjust = 0.5,
+                                            hjust = 1
+                                          )) + geom_text() + theme(text = element_text(size = 9, face = "bold"))  + xlab("") +
+    ylab("") + ggtitle(titulo)
+  
+  return(p1)
+}
+
+funcion_corr <- function(X,cex_variables,title){
+  
+  R2.corr <- corr.test(X)
+  diag(R2.corr$p) <- 1
+  R2.corr$p[lower.tri(R2.corr$p)] <- 1
+  corrplot::corrplot(R2.corr$r,p.mat = R2.corr$p,tl.cex = cex_variables,pch.cex = 2,insig = "label_sig",title = title,mar = c(1,0,1,0))
+}
+
+fun_wrapper_vanvalen <- function(x,categorica,corr){
+  dim2 <- dim(x)[2]
+  x <- split(x,f = categorica)
+  x[[1]] <- matrix(x[[1]],ncol=dim2,byrow = F)
+  x[[2]] <- matrix(x[[2]],ncol=dim2,byrow = F)
+  if(corr==T){
+      x <- lapply(x, cor)
+  }else{
+    x <- lapply(x, var)
+  }
+  pvalue <- vanValen.test2(x[[1]],x[[2]])
+  
+  return(pvalue)
+  
+  
+}
+
+fun_wrapper_vanvalen2 <- function(x,categorica,corr){
+  
+  dim2 <- dim(x)[1]
+  x <- split(x,f = categorica)
+  x[[1]] <- matrix(x[[1]],ncol=dim2,byrow = F)
+  x[[2]] <- matrix(x[[2]],ncol=dim2,byrow = F)
+  if(corr==T){
+      x <- lapply(x, cor)
+  }else{
+    x <- lapply(x, var)
+  }
+  pvalue <- vanValen.test2(x[[1]],x[[2]])
+  
+  return(pvalue)
+  
+  
+}
+misuper2 <- function(tot){
+  
+  ### obesidad
+  
+
+  mdl2 <- model.matrix( ~ 0 + obesidad)
+  colnames(mdl2) <-c("No","O")
+  contraste <- c("O-No")
+
+  contrastes <-
+    makeContrasts(contrasts = contraste, levels = colnames(mdl2))
+  fit <- lmFit(t(tot), design = mdl2)
+  fit2 <- contrasts.fit(fit, contrastes)
+  fit2 <- eBayes(fit2)
+  coeficientes <- coef(fit2)
+  coeficientes.obesidad <- coeficientes
+  cn <- dim(coeficientes)[2]
+  res.pdf <-
+    lapply(1:cn, function(x)
+      topTable(fit2, coef = x, number = Inf))
+  res.pdf2 <-
+    as.data.frame(Reduce("cbind", (lapply(res.pdf, function(x)
+      x$P.Value))))
+  colnames(res.pdf2) <- "O.No"
+  rownames(res.pdf2) <- rownames(coeficientes)
+  obese <- res.pdf2
+  
+  mdl2 <- model.matrix( ~ 0 + grupo)
+  colnames(mdl2) <-c("Female","PCOS","Male")
+  contraste <- c("PCOS-Female","PCOS-Male","Male-Female")
+
+  contrastes <-
+    makeContrasts(contrasts = contraste, levels = colnames(mdl2))
+  fit <- lmFit(t(tot), design = mdl2)
+  fit2 <- contrasts.fit(fit, contrastes)
+  fit2 <- eBayes(fit2)
+  coeficientes <- coef(fit2)
+  coefficientes.grupo <- coeficientes
+  cn <- dim(coeficientes)[2]
+  res.pdf <-
+    lapply(1:cn, function(x)
+      topTable(fit2, coef = x, number = Inf))
+  res.pdf2 <-
+    as.data.frame(Reduce("cbind", (lapply(res.pdf, function(x)
+      x$P.Value))))
+  colnames(res.pdf2) <- c("PF","PM","MF")
+  rownames(res.pdf2) <- rownames(coeficientes)
+  
+  grups <- res.pdf2
+  
+  interaccion <- interaction(grupo,obesidad)
+  mdl2 <- model.matrix( ~ 0 + interaccion)
+  
+  colnames(mdl2) <- gsub("interaccion", "", colnames(mdl2))
+  colnames(mdl2) <- c("FNO","PCOSNO","MALENO","FO","PCOSO","MALEO")
+  contraste <- c(
+    no_pcos_female = "PCOSNO-FNO",
+    no_pcos_male = "PCOSNO-MALENO",
+    no_sexo_control = "MALENO-FNO",
+    o_pcos_female = "PCOSO-FO",
+    o_pcos_male = "PCOSO-MALEO",
+    o_sexo_control = "MALEO-FO",
+    pcos = "PCOSO-PCOSNO",
+    male = "MALEO-MALENO",
+    female = "FO-FNO"
+  )
+  
+  colnames(mdl2) <- gsub("interaccion", "", colnames(mdl2))
+  
+  contrastes <-
+    makeContrasts(contrasts = contraste, levels = colnames(mdl2))
+  fit <- lmFit(t(tot), design = mdl2)
+  fit2 <- contrasts.fit(fit, contrastes)
+  fit2 <- eBayes(fit2)
+  coeficientes <- coef(fit2, Inf)
+  coeficientes.interact <- coeficientes
+  cn <- dim(coeficientes)[2]
+  res.pdf <-
+    lapply(1:cn, function(x)
+      topTable(fit2, coef = x, number = Inf))
+  res.pdf2 <-
+    Reduce("cbind", (lapply(res.pdf, function(x)
+      x$adj.P.Val)))
+  rownames(res.pdf2) <- rownames(coeficientes)
+  colnames(res.pdf2) <- colnames(coeficientes)
+  interact <- res.pdf2
+  
+  pvalores <- data.frame(obese,
+                       grups,
+                       interact)
+  
+  medias <- data.frame(coeficientes.obesidad,
+                       coefficientes.grupo,
+                       coeficientes.interact)
+  colnames(pvalores) <- colnames(medias)
+  medias$variables <- rownames(medias)
+  pvalores$variables <- rownames(pvalores)
+  retorno <- list(pvalores=pvalores,
+                  medias=medias)
+ 
+}
+
+                         
+datos <- readRDS("../../datos/preprocesado_08_09_23/novoom-04-10-23.rds")
+
+
+```
+
+# RESULTADOS PRELIMINARES
+
+```{r,message=F,warning=FALSE}
+#13 escalado metaboloma y aldexmean escalado
+modelos <- lapply(list.files("./modelos_final/",full.names = T), load_model)
+modelo <- MOFA2::select_model(modelos,plot=T)
+
+```
+
+```{r}
+p1 <- plot_variance_explained(modelo, max_r2 = 15)
+
+p2 <- plot_variance_explained(modelo, plot_total = T)[[2]]
+
+p3 <- ggarrange(p1, p2)
+
+p3
+```
+
+```{r}
+plot_factor_cor(modelo)
+```
+
+## covariables
+
+```{r}
+factores <- get_factors(modelo)[[1]]
+pvalcor <- corr.test(factores)$p
+
+bloques <- modelo@data
+clinic <- modelo@samples_metadata
+w <- which(lapply(clinic,is.numeric)==T)
+clinic <- clinic[,w]
+
+factores <- get_factors(modelo,scale = F)[[1]]
+
+covariables<- modelo@samples_metadata[,-c(15,17)]
+obj <- corr.test(factores,covariables)
+
+corrplot::corrplot(obj$r,is.corr = F,p.mat = obj$p,insig = "label_sig",title = "Correlation between latent variables and covariables",mar = c(1,0,1,0))
+```
+
+## distribucion de los factores
+
+```{r}
+
+plot_variance_explained_per_feature(modelo,"metagenoma",split_by_factor = T)
+plot_variance_explained_per_feature(modelo,"metaboloma",split_by_factor = T)
+plot_variance_explained_per_feature(modelo,"ip",split_by_factor = T)
+
+```
+
+## Reconstruccion
+
+```{r}
+pesos <- Reduce(rbind, get_weights(modelo, scale = F))
+factores <- get_factors(modelo)[[1]]
+
+R <- factores %*% t(pesos)
+grupo <- datos$comunes$grupo
+obesidad <- datos$comunes$obesidad
+sexo <- datos$comunes$variables_in_bacteria$SEX
+R2 <- as.data.frame(t(Reduce("rbind",list(modelo@data$metaboloma[[1]],
+                          modelo@data$metagenoma[[1]],
+                          modelo@data$ip[[1]]))))
+
+
+p1<- funcion_pca(R2,trans = F,scle = F)[[1]]
+p2 <- funcion_pca(R,trans = F,scle = F)[[1]]
+
+p1
+p2
+```
+
+## reconstruccion con clinicas
+
+```{r}
+# modelo@samples_metadata$FREE_TEST <- (modelo@samples_metadata$FREE_TEST)
+p1<- funcion_pca(cbind(R2,scale(modelo@samples_metadata[,-c(15,17)])),trans = F,scle = F)[[1]]
+p2 <- funcion_pca(cbind(R,scale(modelo@samples_metadata[,-c(15,17)])),trans = F,scle = F)[[1]]
+
+p1
+p2
+```
+
+## Downstream analysis
+
+### SELECCION DE VARIABLES
+
+```{r}
+R <- factores %*% t(pesos)
+
+umbral <- 80
+umbral2 <- umbral/100
+
+mt <- plot_variance_explained_per_feature(modelo,"metaboloma",split_by_factor = F,return_data = T,features = "all",factors = 1 )
+mt <- as.character(mt$feature[mt$value>umbral])
+#### METAGENOMA
+# TERCER AL QUINTO 
+mm <- plot_variance_explained_per_feature(modelo,"metagenoma",split_by_factor = F,return_data = T,features ="all",factors = 3:5)
+mm <- as.character(mm$feature[mm$value>umbral])
+#### PROTEOMA
+# SEGUNDO Y TERCER FACTOR
+mp <- plot_variance_explained_per_feature(modelo,"ip",split_by_factor = F,return_data = T,features = "all",factors = 2:3)
+
+mp <- as.character(mp$feature[mp$value>umbral])
+
+biomarcadores_exp_var <- c(mm,mt,mp)
+mt <- seleccion_feat_1(modelo,"metaboloma",umbral2,factores = 1)
+mg <- seleccion_feat_1(modelo,"metagenoma",umbral2,factores=3:5)
+po <- seleccion_feat_1(modelo,"ip",umbral2,factores=2:3)
+biomarcadores_pesos <- c(mt,mg,po)
+
+p1 <- funcion_pca(R[,biomarcadores_pesos],scle = F,trans = F)
+p2 <- funcion_pca(R2[,biomarcadores_pesos],scle = F,trans = F)
+# p2[[1]]
+p1[[1]]
+
+p1 <- funcion_pca(R[,biomarcadores_exp_var],scle = T,trans = F)
+p2 <- funcion_pca(R2[,biomarcadores_exp_var],scle = T,trans = F)
+# p2[[1]]
+p1[[1]]
+
+grupo_feat <- seleccion_feat_grupo(modelo = modelo)
+intersect_mg <-  intersect(grupo_feat,biomarcadores_pesos)
+
+p1 <- funcion_pca(R[,intersect_mg],scle = T,trans = F)
+p2 <- funcion_pca(R2[,intersect_mg],scle = T,trans = F)
+# p2[[1]]
+p1[[1]]
+
+
+p1 <- funcion_pca(R[,c(intersect_mg,po)],scle = T,trans = F)
+p2 <- funcion_pca(R2[,c(intersect_mg,po)],scle = T,trans = F)
+# p2[[1]]
+p1[[1]]
+
+p1 <- funcion_pca(R[,c(intersect_mg,mp)],scle = T,trans = F)
+p2 <- funcion_pca(R2[,c(intersect_mg,mp)],scle = T,trans = F)
+# p2[[1]]
+p1[[1]]
+
+
+p1 <- funcion_pca(R[,c(intersect_mg,intersect(mp,po))],scle = T,trans = F)
+p2 <- funcion_pca(R2[,c(intersect_mg,intersect(mp,po))],scle = T,trans = F)
+p2[[1]]
+p1[[1]]
+
+biomarcadores <- c(intersect_mg,intersect(mp,po))
+
+```
+
+### RECONSTRUCCION CON COVARIABLES
+
+Para la seleccion de variables se tomaron del metaboloma y del metagenoma y del proteoma aquellas variables que explicaban la mayor variabilidad y de mayor peso. Además del metaboloma y el metagenoma se escogieron aquellas que explicaban diferencialmente las diferencias.
+
+```{r}
+R <- factores %*% t(pesos)
+biomarcadores <- c(intersect_mg,intersect(mp,po))
+R3 <- cbind(R[,biomarcadores],covariables)
+
+
+p1 <- funcion_pca(R[,biomarcadores],scle = T,trans = F)
+p2 <- funcion_pca(R2[,biomarcadores],scle = T,trans = F)
+p3 <- funcion_pca(R3,scle = T,trans = F)
+
+p2[[1]] # original
+p1[[1]] # recons
+p3[[1]] ## recons covar
+```
+
+```{r}
+p1 <- factoextra::fviz_contrib(prcomp(R3,scale. = T),"var")
+p2 <- factoextra::fviz_contrib(prcomp(R3,scale. = T),"var",axes = 2)
+p1
+p2
+```
+
+```{r}
+obj <- corr.test((R3),prcomp(R3,scale. = T)$x)
+
+
+corrplot::corrplot(corr = t(obj$r[,1:3]),is.corr = F,p.mat = t(obj$p[,1:3]),pch.cex = 1,tl.cex = 1,insig = "label_sig")
+```
+
+```{r}
+obj <- corr.test(prcomp(R3,scale. = T)$rot,t(R3))
+
+
+corrplot::corrplot(corr = t(obj$r[,1:3]),is.corr = F,p.mat = t(obj$p[,1:3]),pch.cex = 1,tl.cex = 1,insig = "label_sig")
+```
+
+## Downstream univariante
+
+```{r}
+
+biomarcadores <- c(intersect_mg,intersect(mp,po))
+fun_plot_limma(R2,biomarcadores = biomarcadores ,titulo = "Before")
+fun_plot_limma(R,biomarcadores = biomarcadores ,titulo = "After")
+
+```
+
+```{r}
+fun_plot_limma(factores ,titulo = "Latent Variables")
+```
+
+## Downstream bivariante
+
+```{r}
+funcion_corr(cbind(R2[,biomarcadores],covariables),cex_variables = 0.6,title = "Before")
+funcion_corr(cbind(R[,biomarcadores],covariables),cex_variables = 0.6,title = "After")
+
+```
+
+### SEPARAMOS POR OBESIDAD
+
+```{r}
+funcion_corr(cbind(R[obesidad=="Obese",biomarcadores],covariables[obesidad=="Obese",]),cex_variables = 0.6,title = "Obese")
+funcion_corr(cbind(R[obesidad=="No Obese",biomarcadores],covariables[obesidad=="No Obese",]),cex_variables = 0.5,title = "No Obese")
+```
+
+#### REALIZAMOS LA PRUEBA DE VAN VALEN
+
+```{r}
+
+fun_wrapper_vanvalen(cbind(as.matrix(R)[,biomarcadores],as.matrix(covariables)),obesidad,T)
+
+```
+
+### SEPARAMOS POR GRUPO
+
+```{r}
+
+# por grupo
+funcion_corr(cbind(R[grupo=="Female",biomarcadores],covariables[grupo=="Female",]),cex_variables = 0.6,title = "Female")
+funcion_corr(cbind(R[grupo=="Male",biomarcadores],covariables[grupo=="Male",]),cex_variables = 0.6,title = "Male")
+funcion_corr(cbind(R[grupo=="PCOS",biomarcadores],covariables[grupo=="PCOS",]),cex_variables = 0.6,title = "PCOS")
+
+```
+
+#### REALIZAMOS LA PRUEBA DE VAN VALEN
+
+```{r}
+
+
+```
+
+### REALIZAMOS PRUEBAS DE VANVALEN CON TODOS LOS BIOMARCADORES
+
+```{r}
+
+## por obesidad
+p.obesidad <- fun_wrapper_vanvalen(as.matrix(R),obesidad,T)
+
+### spliteamos el grupo
+ctrl <- droplevels(grupo[grupo=="Female" | grupo=="Male"])
+females <- droplevels(grupo[grupo=="Female" | grupo=="PCOS"])
+hermas <- droplevels(grupo[grupo=="Male" | grupo=="PCOS"])
+
+p.sex <- fun_wrapper_vanvalen(R[grupo=="Female" | grupo=="Male",],categorica = ctrl,cor=T)
+p.females <- fun_wrapper_vanvalen(R[grupo=="Female" | grupo=="PCOS",],categorica = females,cor=T)
+p.hermas <- fun_wrapper_vanvalen(R[grupo=="PCOS" | grupo=="Male",],categorica = hermas,cor=T)
+
+## separado obesidad no obesidad
+ctrl <- droplevels(grupo[(grupo=="Female" | grupo=="Male") & obesidad=="No Obese"])
+females <- droplevels(grupo[(grupo=="Female" | grupo=="PCOS") & obesidad=="No Obese"])
+hermas <- droplevels(grupo[(grupo=="Male" | grupo=="PCOS") & obesidad=="No Obese"])
+
+p.sex.no <- fun_wrapper_vanvalen(R[(grupo=="Female" | grupo=="Male") & obesidad=="No Obese",],categorica = ctrl,cor=T)
+p.females.no <- fun_wrapper_vanvalen(R[(grupo=="Female" | grupo=="PCOS") & obesidad=="No Obese",],categorica = females,cor=T)
+p.hermas.no <- fun_wrapper_vanvalen(R[(grupo=="PCOS" | grupo=="Male") & obesidad=="No Obese",],categorica = hermas,cor=T)
+
+
+ctrl <- droplevels(grupo[(grupo=="Female" | grupo=="Male") & obesidad=="Obese"])
+females <- droplevels(grupo[(grupo=="Female" | grupo=="PCOS") & obesidad=="Obese"])
+hermas <- droplevels(grupo[(grupo=="Male" | grupo=="PCOS") & obesidad=="Obese"])
+
+p.sex.o <- fun_wrapper_vanvalen(R[(grupo=="Female" | grupo=="Male") & obesidad=="Obese",],categorica = ctrl,cor=T)
+p.females.o <- fun_wrapper_vanvalen(R[(grupo=="Female" | grupo=="PCOS") & obesidad=="Obese",],categorica = females,cor=T)
+p.hermas.o <- fun_wrapper_vanvalen(R[(grupo=="PCOS" | grupo=="Male") & obesidad=="Obese",],categorica = hermas,cor=T)
+
+## por obesidad 
+
+obesidad.females <- obesidad[grupo=="Female"]
+obesidad.male <- obesidad[grupo=="Male"]
+obesidad.PCOS <- obesidad[grupo=="PCOS"]
+
+femalesnoob <- fun_wrapper_vanvalen(R[(grupo=="Female"),],categorica = obesidad.females,cor=T)
+malesnoob <- fun_wrapper_vanvalen(R[(grupo=="Male"),],categorica = obesidad.male,cor=T)
+pcosnoob <- fun_wrapper_vanvalen(R[(grupo=="PCOS" ),],categorica = obesidad.PCOS,cor=T)
+
+
+resvan.list <- (list(obesidad=p.obesidad,
+           sexo = p.sex,
+           females= p.females,
+           hermas = p.hermas,
+           sex.no= p.sex.no,
+           females.no = p.females.no,
+           hermas.no = p.hermas.no,
+           sex.ob  = p.sex.o,
+           females.ob = p.females.o,
+           hermas.ob = p.hermas.o,
+           femalesnoob = femalesnoob,
+           malesnoob = malesnoob,
+           pcosnoob = pcosnoob
+           ))
+resvan <- as.data.frame(Reduce("rbind",resvan.list))
+
+colnames(resvan) <- c("p","t")
+rownames(resvan) <- names(resvan.list)
+resvan$adj <- p.adjust(resvan$p,"BH")
+
+resvan$sig <- ifelse(resvan$p<0.05,"*","")
+
+resvan
+
+```
+
+### REALIZAMOS PRUEBAS DE VANVALEN CON LOS BIOMARCADORES
+
+```{r}
+
+## por obesidad
+p.obesidad <- fun_wrapper_vanvalen(as.matrix(R[,biomarcadores]),obesidad,T)
+
+### spliteamos el grupo
+ctrl <- droplevels(grupo[grupo=="Female" | grupo=="Male"])
+females <- droplevels(grupo[grupo=="Female" | grupo=="PCOS"])
+hermas <- droplevels(grupo[grupo=="Male" | grupo=="PCOS"])
+
+p.sex <- fun_wrapper_vanvalen(R[grupo=="Female" | grupo=="Male",biomarcadores],categorica = ctrl,cor=T)
+p.females <- fun_wrapper_vanvalen(R[grupo=="Female" | grupo=="PCOS",biomarcadores],categorica = females,cor=T)
+p.hermas <- fun_wrapper_vanvalen(R[grupo=="PCOS" | grupo=="Male",biomarcadores],categorica = hermas,cor=T)
+
+## separado obesidad no obesidad
+ctrl <- droplevels(grupo[(grupo=="Female" | grupo=="Male") & obesidad=="No Obese"])
+females <- droplevels(grupo[(grupo=="Female" | grupo=="PCOS") & obesidad=="No Obese"])
+hermas <- droplevels(grupo[(grupo=="Male" | grupo=="PCOS") & obesidad=="No Obese"])
+
+p.sex.no <- fun_wrapper_vanvalen(R[(grupo=="Female" | grupo=="Male") & obesidad=="No Obese",biomarcadores],categorica = ctrl,cor=T)
+p.females.no <- fun_wrapper_vanvalen(R[(grupo=="Female" | grupo=="PCOS") & obesidad=="No Obese",biomarcadores],categorica = females,cor=T)
+p.hermas.no <- fun_wrapper_vanvalen(R[(grupo=="PCOS" | grupo=="Male") & obesidad=="No Obese",biomarcadores],categorica = hermas,cor=T)
+
+
+ctrl <- droplevels(grupo[(grupo=="Female" | grupo=="Male") & obesidad=="Obese"])
+females <- droplevels(grupo[(grupo=="Female" | grupo=="PCOS") & obesidad=="Obese"])
+hermas <- droplevels(grupo[(grupo=="Male" | grupo=="PCOS") & obesidad=="Obese"])
+
+p.sex.o <- fun_wrapper_vanvalen(R[(grupo=="Female" | grupo=="Male") & obesidad=="Obese",biomarcadores],categorica = ctrl,cor=T)
+p.females.o <- fun_wrapper_vanvalen(R[(grupo=="Female" | grupo=="PCOS") & obesidad=="Obese",biomarcadores],categorica = females,cor=T)
+p.hermas.o <- fun_wrapper_vanvalen(R[(grupo=="PCOS" | grupo=="Male") & obesidad=="Obese",biomarcadores],categorica = hermas,cor=T)
+
+## por obesidad 
+
+obesidad.females <- obesidad[grupo=="Female"]
+obesidad.male <- obesidad[grupo=="Male"]
+obesidad.PCOS <- obesidad[grupo=="PCOS"]
+
+femalesnoob <- fun_wrapper_vanvalen(R[(grupo=="Female"),biomarcadores],categorica = obesidad.females,cor=T)
+malesnoob <- fun_wrapper_vanvalen(R[(grupo=="Male"),biomarcadores],categorica = obesidad.male,cor=T)
+pcosnoob <- fun_wrapper_vanvalen(R[(grupo=="PCOS" ),biomarcadores],categorica = obesidad.PCOS,cor=T)
+
+
+resvan.list <- (list(obesidad=p.obesidad,
+           sexo = p.sex,
+           females= p.females,
+           hermas = p.hermas,
+           sex.no= p.sex.no,
+           females.no = p.females.no,
+           hermas.no = p.hermas.no,
+           sex.ob  = p.sex.o,
+           females.ob = p.females.o,
+           hermas.ob = p.hermas.o,
+           femalesnoob = femalesnoob,
+           malesnoob = malesnoob,
+           pcosnoob = pcosnoob
+           ))
+resvan1 <- as.data.frame(Reduce("rbind",resvan.list))
+
+colnames(resvan1) <- c("p","t")
+rownames(resvan1) <- names(resvan.list)
+resvan1$adj <- p.adjust(resvan1$p,"BH")
+
+resvan1$sig <- ifelse(resvan1$p<0.05,"*","")
+
+resvan1
+```
+
+### REALIZAMOS PRUEBAS DE VANVALEN CON LOS BIOMARCADORES Y COVARIABLES
+
+```{r}
+
+## por obesidad
+p.obesidad <- fun_wrapper_vanvalen(cbind(as.matrix(R[,biomarcadores]),as.matrix(covariables)),obesidad,T)
+
+### spliteamos el grupo
+ctrl <- droplevels(grupo[grupo=="Female" | grupo=="Male"])
+females <- droplevels(grupo[grupo=="Female" | grupo=="PCOS"])
+hermas <- droplevels(grupo[grupo=="Male" | grupo=="PCOS"])
+
+p.sex <- fun_wrapper_vanvalen(cbind(R[grupo=="Female" | grupo=="Male",biomarcadores],
+                                    as.matrix(covariables[grupo=="Female" | grupo=="Male",])),categorica = ctrl,cor=T)
+p.females <- fun_wrapper_vanvalen(cbind(R[grupo=="Female" | grupo=="PCOS",biomarcadores],
+                                        as.matrix(covariables[grupo=="Female" | grupo=="PCOS",])),categorica = females,cor=T)
+p.hermas <- fun_wrapper_vanvalen(cbind(R[grupo=="PCOS" | grupo=="Male",biomarcadores],
+                                       as.matrix(covariables[grupo=="PCOS" | grupo=="Male",])),categorica = hermas,cor=T)
+
+## separado obesidad no obesidad
+ctrl <- droplevels(grupo[(grupo=="Female" | grupo=="Male") & obesidad=="No Obese"])
+females <- droplevels(grupo[(grupo=="Female" | grupo=="PCOS") & obesidad=="No Obese"])
+hermas <- droplevels(grupo[(grupo=="Male" | grupo=="PCOS") & obesidad=="No Obese"])
+
+p.sex.no <- fun_wrapper_vanvalen(cbind(R[(grupo=="Female" | grupo=="Male") & obesidad=="No Obese",biomarcadores],
+                                       as.matrix(covariables[(grupo=="Female" | grupo=="Male") & obesidad=="No Obese",
+                                                   ])),categorica = ctrl,cor=T)
+p.females.no <- fun_wrapper_vanvalen(cbind(R[(grupo=="Female" | grupo=="PCOS") & obesidad=="No Obese",biomarcadores],
+                                           as.matrix(covariables[(grupo=="Female" | grupo=="PCOS") & obesidad=="No Obese",]))
+                                     ,categorica = females,cor=T)
+p.hermas.no <- fun_wrapper_vanvalen(cbind(R[(grupo=="PCOS" | grupo=="Male") & obesidad=="No Obese",biomarcadores],
+                                          as.matrix(covariables[(grupo=="Female" | grupo=="PCOS") & obesidad=="No Obese",
+                                                      ])),categorica = hermas,cor=T)
+
+
+ctrl <- droplevels(grupo[(grupo=="Female" | grupo=="Male") & obesidad=="Obese"])
+females <- droplevels(grupo[(grupo=="Female" | grupo=="PCOS") & obesidad=="Obese"])
+hermas <- droplevels(grupo[(grupo=="Male" | grupo=="PCOS") & obesidad=="Obese"])
+
+p.sex.o <- fun_wrapper_vanvalen(cbind(R[(grupo=="Female" | grupo=="Male") & obesidad=="Obese",biomarcadores],
+                                      as.matrix(covariables[(grupo=="Female" | grupo=="Male") & obesidad=="Obese",
+                                                  ])),categorica = ctrl,cor=T)
+p.females.o <- fun_wrapper_vanvalen(cbind(R[(grupo=="Female" | grupo=="PCOS") & obesidad=="Obese",biomarcadores],
+                                          as.matrix(covariables[(grupo=="Female" | grupo=="PCOS") & obesidad=="Obese",
+                                                      ])),categorica = females,cor=T)
+p.hermas.o <- fun_wrapper_vanvalen(cbind(R[(grupo=="PCOS" | grupo=="Male") & obesidad=="Obese",biomarcadores],
+                                         as.matrix(covariables[(grupo=="PCOS" | grupo=="Male") & obesidad=="Obese",]
+                                                   )),categorica = hermas,cor=T)
+
+## por obesidad 
+
+obesidad.females <- obesidad[grupo=="Female"]
+obesidad.male <- obesidad[grupo=="Male"]
+obesidad.PCOS <- obesidad[grupo=="PCOS"]
+
+femalesnoob <- fun_wrapper_vanvalen(cbind(R[(grupo=="Female"),biomarcadores],
+                                          as.matrix(covariables[grupo=="Female",
+                                                      ])),categorica = obesidad.females,cor=T)
+malesnoob <- fun_wrapper_vanvalen(cbind(R[(grupo=="Male"),biomarcadores],
+                                        as.matrix(covariables[grupo=="Male",
+                                                    ])),categorica = obesidad.male,cor=T)
+pcosnoob <- fun_wrapper_vanvalen(cbind(R[(grupo=="PCOS" ),biomarcadores],
+                                       as.matrix(covariables[grupo=="PCOS",
+                                                   ])),categorica = obesidad.PCOS,cor=T)
+
+
+resvan.list <- (list(obesidad=p.obesidad,
+           sexo = p.sex,
+           females= p.females,
+           hermas = p.hermas,
+           sex.no= p.sex.no,
+           females.no = p.females.no,
+           hermas.no = p.hermas.no,
+           sex.ob  = p.sex.o,
+           females.ob = p.females.o,
+           hermas.ob = p.hermas.o,
+           femalesnoob = femalesnoob,
+           malesnoob = malesnoob,
+           pcosnoob = pcosnoob
+           ))
+resvan <- as.data.frame(Reduce("rbind",resvan.list))
+
+colnames(resvan) <- c("p","t")
+rownames(resvan) <- names(resvan.list)
+resvan$adj <- p.adjust(resvan$p,"BH")
+
+resvan$sig <- ifelse(resvan$p<0.05,"*","")
+
+resvan
+
+```
+
+```{r}
+write.csv(resvan,"~/Desktop/resvan_cov.csv")
+```
+
+```{r}
+
+## por obesidad
+p.obesidad <- fun_wrapper_vanvalen(cbind(as.matrix(R[,]),as.matrix(covariables)),obesidad,T)
+
+### spliteamos el grupo
+ctrl <- droplevels(grupo[grupo=="Female" | grupo=="Male"])
+females <- droplevels(grupo[grupo=="Female" | grupo=="PCOS"])
+hermas <- droplevels(grupo[grupo=="Male" | grupo=="PCOS"])
+
+p.sex <- fun_wrapper_vanvalen(cbind(R[grupo=="Female" | grupo=="Male",],
+                                    as.matrix(covariables[grupo=="Female" | grupo=="Male",])),categorica = ctrl,cor=T)
+p.females <- fun_wrapper_vanvalen(cbind(R[grupo=="Female" | grupo=="PCOS",],
+                                        as.matrix(covariables[grupo=="Female" | grupo=="PCOS",])),categorica = females,cor=T)
+p.hermas <- fun_wrapper_vanvalen(cbind(R[grupo=="PCOS" | grupo=="Male",],
+                                       as.matrix(covariables[grupo=="PCOS" | grupo=="Male",])),categorica = hermas,cor=T)
+
+## separado obesidad no obesidad
+ctrl <- droplevels(grupo[(grupo=="Female" | grupo=="Male") & obesidad=="No Obese"])
+females <- droplevels(grupo[(grupo=="Female" | grupo=="PCOS") & obesidad=="No Obese"])
+hermas <- droplevels(grupo[(grupo=="Male" | grupo=="PCOS") & obesidad=="No Obese"])
+
+p.sex.no <- fun_wrapper_vanvalen(cbind(R[(grupo=="Female" | grupo=="Male") & obesidad=="No Obese",],
+                                       as.matrix(covariables[(grupo=="Female" | grupo=="Male") & obesidad=="No Obese",
+                                                   ])),categorica = ctrl,cor=T)
+p.females.no <- fun_wrapper_vanvalen(cbind(R[(grupo=="Female" | grupo=="PCOS") & obesidad=="No Obese",],
+                                           as.matrix(covariables[(grupo=="Female" | grupo=="PCOS") & obesidad=="No Obese",]))
+                                     ,categorica = females,cor=T)
+p.hermas.no <- fun_wrapper_vanvalen(cbind(R[(grupo=="PCOS" | grupo=="Male") & obesidad=="No Obese",],
+                                          as.matrix(covariables[(grupo=="Female" | grupo=="PCOS") & obesidad=="No Obese",
+                                                      ])),categorica = hermas,cor=T)
+
+
+ctrl <- droplevels(grupo[(grupo=="Female" | grupo=="Male") & obesidad=="Obese"])
+females <- droplevels(grupo[(grupo=="Female" | grupo=="PCOS") & obesidad=="Obese"])
+hermas <- droplevels(grupo[(grupo=="Male" | grupo=="PCOS") & obesidad=="Obese"])
+
+p.sex.o <- fun_wrapper_vanvalen(cbind(R[(grupo=="Female" | grupo=="Male") & obesidad=="Obese",],
+                                      as.matrix(covariables[(grupo=="Female" | grupo=="Male") & obesidad=="Obese",
+                                                  ])),categorica = ctrl,cor=T)
+p.females.o <- fun_wrapper_vanvalen(cbind(R[(grupo=="Female" | grupo=="PCOS") & obesidad=="Obese",],
+                                          as.matrix(covariables[(grupo=="Female" | grupo=="PCOS") & obesidad=="Obese",
+                                                      ])),categorica = females,cor=T)
+p.hermas.o <- fun_wrapper_vanvalen(cbind(R[(grupo=="PCOS" | grupo=="Male") & obesidad=="Obese",],
+                                         as.matrix(covariables[(grupo=="PCOS" | grupo=="Male") & obesidad=="Obese",]
+                                                   )),categorica = hermas,cor=T)
+
+## por obesidad 
+
+obesidad.females <- obesidad[grupo=="Female"]
+obesidad.male <- obesidad[grupo=="Male"]
+obesidad.PCOS <- obesidad[grupo=="PCOS"]
+
+femalesnoob <- fun_wrapper_vanvalen(cbind(R[(grupo=="Female"),],
+                                          as.matrix(covariables[grupo=="Female",
+                                                      ])),categorica = obesidad.females,cor=T)
+malesnoob <- fun_wrapper_vanvalen(cbind(R[(grupo=="Male"),],
+                                        as.matrix(covariables[grupo=="Male",
+                                                    ])),categorica = obesidad.male,cor=T)
+pcosnoob <- fun_wrapper_vanvalen(cbind(R[(grupo=="PCOS" ),],
+                                       as.matrix(covariables[grupo=="PCOS",
+                                                   ])),categorica = obesidad.PCOS,cor=T)
+
+
+resvan.list <- (list(obesidad=p.obesidad,
+           sexo = p.sex,
+           females= p.females,
+           hermas = p.hermas,
+           sex.no= p.sex.no,
+           females.no = p.females.no,
+           hermas.no = p.hermas.no,
+           sex.ob  = p.sex.o,
+           females.ob = p.females.o,
+           hermas.ob = p.hermas.o,
+           femalesnoob = femalesnoob,
+           malesnoob = malesnoob,
+           pcosnoob = pcosnoob
+           ))
+resvan2 <- as.data.frame(Reduce("rbind",resvan.list))
+
+colnames(resvan2) <- c("p","t")
+rownames(resvan2) <- names(resvan.list)
+resvan2$adj <- p.adjust(resvan2$p,"BH")
+
+resvan2$sig <- ifelse(resvan2$p<0.05,"*","")
+
+resvan2
+
+```
+
+```{r}
+write.csv(resvan1,"~/Desktop/resvan.csv")
+write.csv(resvan2,"~/Desktop/resvan_todo.csv")
+
+```
+
+### SEGUN LOS RESULTADOS VEMOS LAS MATRICES INTERACCION
+
+```{r}
+funcion_corr(cbind(R[grupo=="Female" & obesidad=="Obese",biomarcadores],
+                   covariables[grupo=="Female" & obesidad=="Obese",]),cex_variables = 0.6,title = "Female Obese")
+funcion_corr(cbind(R[grupo=="Male" & obesidad=="Obese",biomarcadores],
+                   covariables[grupo=="Male" & obesidad=="Obese",]),cex_variables = 0.6,title = "Male Obese")
+
+funcion_corr(cbind(R[grupo=="PCOS" & obesidad=="Obese",biomarcadores],
+                   covariables[grupo=="PCOS" & obesidad=="Obese",]),cex_variables = 0.6,title = "PCOS Obese")
+```
+
+### REALIZAMOS PRUEBAS DE VANVALEN CON COVARIABLES
+
+```{r}
+
+## por obesidad
+p.obesidad <- fun_wrapper_vanvalen(cbind(as.matrix(R),as.matrix(covariables)),obesidad,T)
+
+### spliteamos el grupo
+ctrl <- droplevels(grupo[grupo=="Female" | grupo=="Male"])
+females <- droplevels(grupo[grupo=="Female" | grupo=="PCOS"])
+hermas <- droplevels(grupo[grupo=="Male" | grupo=="PCOS"])
+
+p.sex <- fun_wrapper_vanvalen(cbind(R[grupo=="Female" | grupo=="Male",],
+                                    as.matrix(covariables[grupo=="Female" | grupo=="Male",])),categorica = ctrl,cor=T)
+p.females <- fun_wrapper_vanvalen(cbind(R[grupo=="Female" | grupo=="PCOS",],
+                                        as.matrix(covariables[grupo=="Female" | grupo=="PCOS",])),categorica = females,cor=T)
+p.hermas <- fun_wrapper_vanvalen(cbind(R[grupo=="PCOS" | grupo=="Male",],
+                                       as.matrix(covariables[grupo=="PCOS" | grupo=="Male",])),categorica = hermas,cor=T)
+
+## separado obesidad no obesidad
+ctrl <- droplevels(grupo[(grupo=="Female" | grupo=="Male") & obesidad=="No Obese"])
+females <- droplevels(grupo[(grupo=="Female" | grupo=="PCOS") & obesidad=="No Obese"])
+hermas <- droplevels(grupo[(grupo=="Male" | grupo=="PCOS") & obesidad=="No Obese"])
+
+p.sex.no <- fun_wrapper_vanvalen(cbind(R[(grupo=="Female" | grupo=="Male") & obesidad=="No Obese",],
+                                       as.matrix(covariables[(grupo=="Female" | grupo=="Male") & obesidad=="No Obese",
+                                                   ])),categorica = ctrl,cor=T)
+p.females.no <- fun_wrapper_vanvalen(cbind(R[(grupo=="Female" | grupo=="PCOS") & obesidad=="No Obese",],
+                                           as.matrix(covariables[(grupo=="Female" | grupo=="PCOS") & obesidad=="No Obese",]))
+                                     ,categorica = females,cor=T)
+p.hermas.no <- fun_wrapper_vanvalen(cbind(R[(grupo=="PCOS" | grupo=="Male") & obesidad=="No Obese",],
+                                          as.matrix(covariables[(grupo=="Female" | grupo=="PCOS") & obesidad=="No Obese",
+                                                      ])),categorica = hermas,cor=T)
+
+
+ctrl <- droplevels(grupo[(grupo=="Female" | grupo=="Male") & obesidad=="Obese"])
+females <- droplevels(grupo[(grupo=="Female" | grupo=="PCOS") & obesidad=="Obese"])
+hermas <- droplevels(grupo[(grupo=="Male" | grupo=="PCOS") & obesidad=="Obese"])
+
+p.sex.o <- fun_wrapper_vanvalen(cbind(R[(grupo=="Female" | grupo=="Male") & obesidad=="Obese",],
+                                      as.matrix(covariables[(grupo=="Female" | grupo=="Male") & obesidad=="Obese",
+                                                  ])),categorica = ctrl,cor=T)
+p.females.o <- fun_wrapper_vanvalen(cbind(R[(grupo=="Female" | grupo=="PCOS") & obesidad=="Obese",],
+                                          as.matrix(covariables[(grupo=="Female" | grupo=="PCOS") & obesidad=="Obese",
+                                                      ])),categorica = females,cor=T)
+p.hermas.o <- fun_wrapper_vanvalen(cbind(R[(grupo=="PCOS" | grupo=="Male") & obesidad=="Obese",],
+                                         as.matrix(covariables[(grupo=="PCOS" | grupo=="Male") & obesidad=="Obese",]
+                                                   )),categorica = hermas,cor=T)
+
+## por obesidad 
+
+obesidad.females <- obesidad[grupo=="Female"]
+obesidad.male <- obesidad[grupo=="Male"]
+obesidad.PCOS <- obesidad[grupo=="PCOS"]
+
+femalesnoob <- fun_wrapper_vanvalen(cbind(R[(grupo=="Female"),],
+                                          as.matrix(covariables[grupo=="Female",
+                                                      ])),categorica = obesidad.females,cor=T)
+malesnoob <- fun_wrapper_vanvalen(cbind(R[(grupo=="Male"),],
+                                        as.matrix(covariables[grupo=="Male",
+                                                    ])),categorica = obesidad.male,cor=T)
+pcosnoob <- fun_wrapper_vanvalen(cbind(R[(grupo=="PCOS" ),],
+                                       as.matrix(covariables[grupo=="PCOS",
+                                                   ])),categorica = obesidad.PCOS,cor=T)
+
+
+
+resvan.list <- (list(obesidad=p.obesidad,
+           sexo = p.sex,
+           females= p.females,
+           hermas = p.hermas,
+           sex.no= p.sex.no,
+           females.no = p.females.no,
+           hermas.no = p.hermas.no,
+           sex.ob  = p.sex.o,
+           females.ob = p.females.o,
+           hermas.ob = p.hermas.o,
+           femalesnoob = femalesnoob,
+           malesnoob = malesnoob,
+           pcosnoob = pcosnoob
+           ))
+resvan <- as.data.frame(Reduce("rbind",resvan.list))
+
+colnames(resvan) <- c("p","t")
+rownames(resvan) <- names(resvan.list)
+resvan$adj <- p.adjust(resvan$p,"BH")
+
+resvan$sig <- ifelse(resvan$p<0.05,"*","")
+
+resvan
+```
+
+```{r}
+library(networkD3)
+library(tidygraph)
+library(igraph)
+library(ggraph)
+library(ggrepel)
+fun_red_wrapper_3 <- function(X, sujetos,titulo,cutoff) {
+  if(!is.null(sujetos)){
+    
+  
+  cor.o <- cor(X[obesidad == sujetos,])
+  
+  cor.o[colnames(cor.o) %in% rownames(metaboloma),
+        colnames(cor.o) %in% rownames(metaboloma)] <- 0
+  
+  cor.o[colnames(cor.o) %in% rownames(metagenoma),
+        colnames(cor.o) %in% rownames(metagenoma)] <- 0
+   
+  cor.o[colnames(cor.o) %in% rownames(ip),
+        colnames(cor.o) %in% rownames(ip)] <- 0
+  
+  p1 <-
+    funcion_red3(incidence = cor.o,
+                titulo = titulo,
+                cutoff = cutoff)
+  }else{
+    
+      cor.o <- cor(X)
+  
+  cor.o[colnames(cor.o) %in% rownames(metaboloma),
+        colnames(cor.o) %in% rownames(metaboloma)] <- 0
+  
+  cor.o[colnames(cor.o) %in% rownames(metagenoma),
+        colnames(cor.o) %in% rownames(metagenoma)] <- 0
+    
+  cor.o[colnames(cor.o) %in% rownames(ip),
+        colnames(cor.o) %in% rownames(ip)] <- 0
+  
+    cor.o[colnames(cor.o) %in% rownames(covariables),
+        colnames(cor.o) %in% rownames(covariables)] <- 0
+  
+  p1 <-
+    funcion_red3(incidence = cor.o,
+                titulo = titulo,
+                cutoff = cutoff)
+  }
+  
+  return(p1)
+  
+}
+funcion_red3 <- function(incidence, titulo, cutoff) {
+  
+  
+  graph <-
+    graph.adjacency(incidence, weighted = TRUE, mode = "directed")
+  
+  V(graph)$id <- NA
+  myleaves <- which(is.na(match(V(graph)$name, E(graph)$from)))
+  nleaves <- length(myleaves)
+  V(graph)$id[myleaves] <- seq(1:nleaves)
+  V(graph)$angle <- 90 - 360 * V(graph)$id / nleaves
+  V(graph)$color <-
+    ifelse(colnames(incidence) %in% colnames(metaboloma), "blue", "red")
+  V(graph)$color <-
+    ifelse(colnames(incidence) %in% colnames(metagenoma),
+           "red",
+           V(graph)$color)
+   V(graph)$color <-
+    ifelse(colnames(incidence) %in% colnames(ip),
+           "green",
+           V(graph)$color)
+  
+  graph <-
+    delete.edges(graph, E(graph)[abs(E(graph)$weight) < cutoff])
+  isolated_nodes <-
+    which(degree(graph) ==0)  # Obtener índices de nodos no conectados
+  graph <-
+    delete.vertices(graph, v = isolated_nodes)
+  
+  # calculate the alignment of labels: right or left
+  # If I am on the left part of the plot, my labels have currently an angle < -90
+  hjust <- ifelse(V(graph)$angle < -90, 1, 0)
+  
+  # flip angle BY to make them readable
+  V(graph)$angle <-
+    ifelse(V(graph)$angle < -90, V(graph)$angle + 180, V(graph)$angle)
+  
+  p1 <- ggraph(graph, layout = 'linear', circular = T) +
+    geom_edge_arc(aes(color = weight, width = abs(weight) / 4), alpha = 0.2) +
+    geom_node_text(
+      aes(
+        label = name,
+        x=x*1.1,
+        y=y*1.1)
+      ,repel = T,
+      size = 3,
+      alpha = 2,
+      check_overlap = T,
+      max.overlaps=28
+      
+    ) +
+    geom_node_point(shape = 21, size = 2, aes(fill = as.factor(color))) +
+    scale_edge_color_gradientn(colours = c('red4', 'gold', 'green4')) +
+    coord_fixed(xlim = c(-2, 2), ylim = c(-2, 2)) + theme(legend.position = "none") +
+    ggtitle(paste(titulo, "cutoff", cutoff))
+  return(p1)
+  
+}
+```
+
+```{r}
+cutoff <- 0.7
+metaboloma <- modelo@data$metaboloma$group1
+ip <- modelo@data$ip$group1
+metagenoma <- modelo@data$metagenoma$group1
+p1 <- fun_red_wrapper_3(cbind(R[,biomarcadores],
+                              covariables),
+                                      "Obese","Obese",cutoff)
+p1
+
+p2 <- fun_red_wrapper_3(cbind(R[,biomarcadores],
+                              covariables),
+                                      "No Obese","No Obese",cutoff)
+p2
+```
+
+```{r}
+cutoff <- 0.8
+metaboloma <- modelo@data$metaboloma$group1
+ip <- modelo@data$ip$group1
+metagenoma <- modelo@data$metagenoma$group1
+p1 <- fun_red_wrapper_3(cbind(R[grupo=="Male",biomarcadores],
+                              covariables[grupo=="Male",]),titulo = "Male",cutoff = cutoff,sujetos = NULL)
+p1
+
+p1 <- fun_red_wrapper_3(cbind(R[grupo=="Female",biomarcadores],
+                              covariables[grupo=="Female",]),titulo = "Female",cutoff = cutoff,sujetos = NULL)
+p1
+p1 <- fun_red_wrapper_3(cbind(R[grupo=="PCOS",biomarcadores],
+                              covariables[grupo=="PCOS",]),titulo = "PCOS",cutoff = cutoff,sujetos = NULL)
+p1
+```
+
+```{r}
+cutoff <- 0.8
+metaboloma <- modelo@data$metaboloma$group1
+ip <- modelo@data$ip$group1
+metagenoma <- modelo@data$metagenoma$group1
+interaccion <-  interaction(grupo,obesidad)
+p1 <- fun_red_wrapper_3(cbind(R[interaccion=="Female.No Obese",biomarcadores], covariables[interaccion=="Female.No Obese",]),titulo = "Female.No Obese",cutoff = cutoff,sujetos = NULL)
+p1
+
+p1 <- fun_red_wrapper_3(cbind(R[interaccion=="Female.Obese",biomarcadores],
+                              covariables[interaccion=="Female.Obese",]),titulo = "Female.Obese",cutoff = cutoff,sujetos = NULL)
+p1
+p1 <- fun_red_wrapper_3(cbind(R[interaccion=="PCOS.Obese",biomarcadores],
+                              covariables[interaccion=="PCOS.Obese",]),titulo = "PCOS.Obese",cutoff = cutoff,sujetos = NULL)
+p1
+
+
+p1 <- fun_red_wrapper_3(cbind(R[interaccion=="PCOS.No Obese",biomarcadores],
+                              covariables[interaccion=="PCOS.No Obese",]),titulo = "PCOS.No Obese",cutoff = cutoff,sujetos = NULL)
+p1
+
+
+p1 <- fun_red_wrapper_3(cbind(R[interaccion=="Male.Obese",biomarcadores],
+                              covariables[interaccion=="Male.Obese",]),titulo = "Male.Obese",cutoff = cutoff,sujetos = NULL)
+p1
+
+p1 <- fun_red_wrapper_3(cbind(R[interaccion=="Male.No Obese",biomarcadores],
+                              covariables[interaccion=="Male.No Obese",]),titulo = "Male.No Obese",cutoff = cutoff,sujetos = NULL)
+p1
+```
+
+```{r}
+RR <- factores %*% t(pesos[biomarcadores,])
+
+funcion_pca(cbind(RR,(covariables)),scle = T,trans = F)
+```
+
+```{r}
+  pesos <- Reduce(rbind, get_weights(modelo, scale = T))
+
+  factores <- get_factors(modelo,scale = T)[[1]]
+  post <- factores %*% t(pesos[biomarcadores, ])
+  pre <-
+    as.data.frame(t(Reduce(
+      "rbind",
+      list(
+        modelo@data$metaboloma[[1]],
+        modelo@data$metagenoma[[1]],
+        modelo@data$ip[[1]]
+      )
+    )))[, biomarcadores]
+  
+  noise <- pre-post
+```
+
+```{r}
+pcx <- prcomp(noise)
+
+funcion_pca(pre,T,F)[[2]]
+funcion_pca(post,T,F)[[2]]
+funcion_pca(noise,T,F)[[2]]
+
+```
+
+```{r}
+corrrel <- cor(noise,clinic)
+ggcorrplot::ggcorrplot(corrrel)
+```
+
+```{r}
+corrrel <- cor(pre,clinic)
+ggcorrplot::ggcorrplot(corrrel)
+```
+
+```{r}
+corrrel <- cor(post[grupo=="PCOS",],clinic[grupo=="PCOS",])
+ggcorrplot::ggcorrplot(corrrel)
+```
+
+```{r}
+ggcorrplot::ggcorrplot(cor(noise))
+```
+
+```{r}
+ggcorrplot::ggcorrplot(cor(post))
+
+```
+
+```{r}
+ggcorrplot::ggcorrplot(cor(pre))
+
+```
+
+```{r}
+  pesos <- Reduce(rbind, get_weights(modelo, scale = T))
+
+  factores <- get_factors(modelo,scale = T)[[1]]
+  post <- factores %*% t(pesos)
+  pre <-
+    as.data.frame(t(Reduce(
+      "rbind",
+      list(
+        modelo@data$metaboloma[[1]],
+        modelo@data$metagenoma[[1]],
+        modelo@data$ip[[1]]
+      )
+    )))
+  
+  noise <- pre-post
+  
+fun_plot_limma(pre,biomarcadores = biomarcadores ,titulo = "Before")
+fun_plot_limma(post,biomarcadores = biomarcadores ,titulo = "After")
+fun_plot_limma(noise,biomarcadores = biomarcadores ,titulo = "After")
+
+```
+
+```{r}
+  pre <-
+    scale(as.data.frame(t(Reduce(
+      "rbind",
+      list(
+        modelo@data$metaboloma[[1]],
+        modelo@data$metagenoma[[1]],
+        modelo@data$ip[[1]]
+      )
+    ))))
+r <- corr.test(factores[obesidad=="No Obese",],pre[obesidad=="No Obese",biomarcadores])$r
+p <- corr.test(factores[obesidad=="No Obese",],pre[obesidad=="No Obese",biomarcadores])$p
+
+corrplot::corrplot(r,is.corr = F,p.mat = p,insig = "label_sig",title = "Correlation between latent variables and covariables",mar = c(1,0,1,0))
+
+```
+
+```{r}
+pairwise.t.test(factores[,1],interaction(grupo,obesidad))
+```
+
+```{r}
+prueba <- t(corr.test(factores,post)$p)[,1]
+
+nombres <- names(prueba)[which(prueba<0.05)]
+
+rec <- t(factores[,1] %*% t(pesos[nombres,1]))
+
+colnames(rec) <- rownames(pre)
+
+rect <- t(rec)
+
+rectp <- apply(rect,2,function(y) t.test(y ~ obesidad)$p.value)
+
+rectp
+
+rectp2 <- apply(scale(post[,nombres]),2,function(x) t.test(x ~ obesidad)$p.value)
+
+rectp2
+```
+
+```{r}
+//
+```
+
+## BIOMARKER SELECTION 2
+
+PRIMERO CON TODAS LAS VARIABLES El objetivo es encontrar biomarcadores 1. Evaluar los factores ¿Hay algún factor exclusivo del PCOS/obesidad?
+
+```{r}
+tot <- factores
+biomarcadores <- colnames(factores)
+res <- misuper2(tot )
+
+
+res$pvalores
+
+res$pvalores<0.05
+```
+
+#### pensamiento
+
+```{r}
+factoresdb <- bind_cols(obesidad=obesidad,grupo=grupo,interaccion=interaction(grupo,obesidad),factores)
+
+lista.factores_obesidad <- split(factoresdb,obesidad)
+lista.factores_grupo <- split(factoresdb,grupo)
+lista.factores_interaccion <- split(factoresdb,interaccion)
+lista_interes <- list(obesidad=lista.factores_obesidad,
+                      grupo=lista.factores_grupo,
+                      interaccion = lista.factores_interaccion)
+
+l <- unlist(lapply(lista_interes,names))
+
+res.list <- list()
+
+for(i in 1:3){
+  
+  res.list[[i]] <- lapply(lista_interes[[i]],function(x) corr.test(x[,4:6])$r[upper.tri(diag(3))])
+}
+
+```
+
+```{r}
+res.mat <- t(as.data.frame(res.list))
+colnames(res.mat) <- c("F1vsF2","F1vsF3","F2vsF3")
+res.mat <- as.data.frame(res.mat)
+```
+
+```{r}
+res.mat[order(abs(res.mat$F1vsF2),decreasing = T),]
+```
+
+Ahora necesitamos ver, de cada comparacion, los factores que se han tomado, cómo los factores, como variables independientes Explican las variables originales, separadas por grupo de interes.
+
+```{r}
+posiciones <- list(obesos = which(obesidad=="Obese"),
+                   NoObese = which(obesidad=="No Obese"),
+                   Female = which(grupo =="Female"),
+                   Male = which(grupo == "Male"),
+                   PCOS = which(grupo=="PCOS"),
+                   FemaleO = which(grupo=="Female" & obesidad=="Obese"),
+                   FemaleNO = which(grupo=="Female" & obesidad == "No Obese"),
+                   MaleO = which(grupo=="Male" & obesidad=="Obese"),
+                   MaleNO = which(grupo=="Male" & obesidad=="No Obese"),
+                   PCOSO = which(grupo == "PCOS" & obesidad=="Obese"),
+                   PCOSNO = which(grupo=="PCOS" & obesidad=="No Obese"))
+l <- length(posiciones)
+
+res2 <- list()
+for(j in 1:l){
+  
+  res2[[j]] <- apply(pre[posiciones[[j]],],2,function(x) summary(lm(x ~ factores[posiciones[[j]],1:3]))$r.squared)
+
+}
+
+names(res2) <- names(posiciones)
+
+```
+
+```{r}
+umbral <- 0.9
+res3 <- lapply(res2,function(x) which(x>umbral))
+res3
+```
+
+biomarcadores obesos y no obesos
+
+```{r}
+totobesidad <- unique(c(res3$obesos,res3$NoObese))
+res3$obesos[!res3$obesos  %in% res3$NoObese]
+```
+
+## PROBAR CON PRE Y POST ALL VARIABLES Y COVARIABLES
+
+## TIENE QUE RETORNAR
+
+```{r}
+fun_biomarkers_1 <-
+  function(X_,
+           factores = factores,
+           covariables = covariables,
+           grupo = grupo,
+           obesidad = obesidad) {
+    X <- cbind(X_, covariables)
+    ## que factores son relevantes
+    tot <- factores
+    biomarcadores <- colnames(factores)
+    res <- misuper2(tot)
+    relevant_Factors <- res$pvalores < 0.05
+    w <- which(apply(relevant_Factors, 1, function(x)
+      any(x == T)))
+    important_factors <- factores[, w]
+    posiciones <- list(
+      obesos = which(obesidad == "Obese"),
+      NoObese = which(obesidad == "No Obese"),
+      Female = which(grupo == "Female"),
+      Male = which(grupo == "Male"),
+      PCOS = which(grupo == "PCOS"),
+      FemaleO = which(grupo == "Female" &
+                        obesidad == "Obese"),
+      FemaleNO = which(grupo == "Female" &
+                         obesidad == "No Obese"),
+      MaleO = which(grupo == "Male" &
+                      obesidad == "Obese"),
+      MaleNO = which(grupo == "Male" &
+                       obesidad == "No Obese"),
+      PCOSO = which(grupo == "PCOS" &
+                      obesidad == "Obese"),
+      PCOSNO = which(grupo == "PCOS" &
+                       obesidad == "No Obese")
+    )
+    
+    l <- length(posiciones)
+    
+    rs <- vector("list", length = l)
+    ps <-  vector("list", length = l)
+    for (j in 1:l) {
+      r_i <-   apply(X[posiciones[[j]],], 2, function(x)
+        summary(lm(x ~ factores[posiciones[[j]], 1:3]))$r.squared)
+      f_s <-  apply(X[posiciones[[j]],], 2, function(x)
+        summary(lm(x ~ factores[posiciones[[j]], 1:3]))$fstatistic[1])
+      
+      df1 <-  apply(X[posiciones[[j]],], 2, function(x)
+        summary(lm(x ~ factores[posiciones[[j]], 1:3]))$fstatistic[2])
+      
+      df2 <-  apply(X[posiciones[[j]],], 2, function(x)
+        summary(lm(x ~ factores[posiciones[[j]], 1:3]))$fstatistic[3])
+      
+      pvalue <- pf(f_s, df1, df2, lower.tail = F)
+      
+      rs[[j]] <- r_i
+      ps[[j]] <- pvalue
+      
+    }
+    
+    names(rs) <- names(posiciones)
+    names(ps) <- names(posiciones)
+    
+    
+    retornar <- list(Rs = rs,
+                     Ps = ps)
+    return(retornar)
+  }
+
+
+pesos <- Reduce(rbind, get_weights(modelo, scale = T))
+
+factores <- get_factors(modelo, scale = T)[[1]]
+post <- (factores[, 1:3] %*% t(pesos[, 1:3]))
+pre <-
+  (as.data.frame(t(Reduce(
+    "rbind",
+    list(
+      modelo@data$metaboloma[[1]],
+      modelo@data$metagenoma[[1]],
+      modelo@data$ip[[1]]
+    )
+  ))))
+
+covariables_S <- (covariables)
+csa <- cor(t(factores),t(pesos))
+prueba <-
+  fun_biomarkers_1(
+    X_ = pre,
+    factores = factores[, 1:3],
+    covariables = covariables_S,
+    grupo = grupo,
+    obesidad = obesidad
+  )
+
+pvalues <- sapply(prueba$Ps, function(x)
+  x < 0.05)
+radjusted <- sapply(prueba$Ps, function(x)
+  x)
+# csa3 <- csa2[csa==F]
+
+
+columnas <- colnames(radjusted)
+
+biomarkers <- lapply(columnas, function(x)
+  which(pvalues[, x] == T))
+
+names(biomarkers) <- columnas
+
+biomarkers.list <-
+  lapply(biomarkers, function(x)
+    rownames(pvalues)[x])
+
+obese_biomarkers <- biomarkers.list$obesos
+Noobese_biomarkers <- biomarkers.list$NoObese
+
+biomarcadores_definidos <-
+  list(
+    obesidad = obese_biomarkers[!obese_biomarkers %in% Noobese_biomarkers],
+    NoObesidad = Noobese_biomarkers[!Noobese_biomarkers %in% obese_biomarkers],
+    Female = biomarkers.list$Female[!biomarkers.list$Female %in% unique(c(biomarkers.list$Male,
+                                                                          biomarkers.list$PCOS))],
+    PCOS = biomarkers.list$PCOS[!biomarkers.list$PCOS %in% unique(c(biomarkers.list$Male,
+                                                                    biomarkers.list$Female))],
+    Male = biomarkers.list$Male[!biomarkers.list$PCOS %in% unique(c(biomarkers.list$Female,
+                                                                    biomarkers.list$Male))],
+    FemaleNO = biomarkers.list$FemaleNO[!biomarkers.list$FemaleNO %in% unique(
+      c(
+        biomarkers.list$FemaleO,
+        biomarkers.list$MaleO,
+        biomarkers.list$PCOSO,
+        biomarkers.list$PCOSNO,
+        biomarkers.list$MaleNO,
+        biomarkers.list
+      )
+    )],
+    FemaleO = biomarkers.list$FemaleO[!biomarkers.list$FemaleO %in% unique(
+      c(
+        biomarkers.list$FemaleNO,
+        biomarkers.list$MaleO,
+        biomarkers.list$PCOSO,
+        biomarkers.list$PCOSNO,
+        biomarkers.list$MaleNO
+      )
+    )],
+    MaleO =  biomarkers.list$MaleO[!biomarkers.list$MaleO %in% unique(
+      c(
+        biomarkers.list$FemaleO,
+        biomarkers.list$FemaleNO,
+        biomarkers.list$PCOSO,
+        biomarkers.list$PCOSNO,
+        biomarkers.list$MaleNO
+      )
+    )],
+    MaleNO =  biomarkers.list$MaleNO[!biomarkers.list$MaleNO %in% unique(
+      c(
+        biomarkers.list$FemaleO,
+        biomarkers.list$FemaleNO,
+        biomarkers.list$PCOSO,
+        biomarkers.list$PCOSNO,
+        biomarkers.list$MaleO
+      )
+    )],
+    PCOSO =  biomarkers.list$PCOSO[!biomarkers.list$PCOSO %in% unique(
+      c(
+        biomarkers.list$FemaleO,
+        biomarkers.list$FemaleNO,
+        biomarkers.list$PCOSNO,
+        biomarkers.list$MaleNO,
+        biomarkers.list$MaleO
+      )
+    )],
+    PCOSNO =  biomarkers.list$PCOSNO[!biomarkers.list$PCOSNO %in% unique(
+      c(
+        biomarkers.list$FemaleO,
+        biomarkers.list$FemaleNO,
+        biomarkers.list$MaleO,
+        biomarkers.list$MaleNO,
+        biomarkers.list$PCOSO
+      )
+    )]
+  )
+
+
+
+
+for (j in 1:ncol(radjusted)) {
+  radjusted[!rownames(radjusted) %in% biomarcadores_definidos[[j]] , j]  <-
+    NA
+  
+  
+}
+
+```
+
+```{r}
+interes <- biomarcadores_definidos$PCOS
+```
+
+```{r}
+funcion_pca(post[,interes],F,F)
+```
+
+#### 
+
+```{r}
+postc  <- cbind(post,covariables)
+```
+
+```{r}
+csa <- misuper2(postc)
+```
+
+obesidad \#
+
+```{r}
+interes_obesidad <- c(biomarcadores_definidos$obesidad,
+                      biomarcadores_definidos$NoObesidad)
+interes_obesidad_limmma <- rownames(csa$pvalores)[csa$pvalores<0.05]
+
+interes_obesidad_inter <- intersect(interes_obesidad_limmma,interes_obesidad)
+# interes_obesidad_inter
+
+which.obese <- (c(interes_obesidad_inter[interes_obesidad_inter %in% biomarcadores_definidos$obesidad]))
+
+interes_obesidad_inter <- intersect(interes_obesidad_limmma,interes_obesidad)
+which.noobese <- (c(interes_obesidad_inter[interes_obesidad_inter %in% biomarcadores_definidos$NoObesidad]))
+
+```
+
+```{r}
+g_interes <- 
+g_out <- 
+```
+
+```{r}
+vectoraux <- list(O.No = c(2,1),
+                  PCOS.Female = c(3,4),
+                  PCOS.Male = c(5,4),
+                  Male.Female = c(3,5))
+
+
+```
+
+```{r}
+medias <- prueba$medias
+pvalores <- prueba$pvalores
+
+variables_comparativa <- apply(pvalores[,-ncol(pvalores)],2,function(x) which(x<0.05))
+
+nombre_variables <- vector("list",length = length(names(variables_comparativa)))
+for(cin in 1:length(names(variables_comparativa))){
+  
+  nombre_variables[[cin]] <- rownames(pvalores)[variables_comparativa[[cin]]]
+  
+}
+names(nombre_variables) <- names(variables_comparativa)
+
+v.obesos_gral <- nombre_variables$O.No
+```
+
+```{r}
+post.obesos <- post[,v.obesos_gral]
+cosa <- apply(post.obesos,2,function(x) summary(lm(x ~ obesidad)))
+```
+
+```{r}
+auxlm <- function(x, categorica) {
+  grups.lm <-  summary(lm(x ~ 0 + categorica))
+  grups.r2 <- grups.lm$r.squared
+  fstat <- grups.lm$fstatistic[1]
+  df1 <- grups.lm$fstatistic[2]
+  df2 <- grups.lm$fstatistic[3]
+  grups.pval <- pf(fstat, df1, df2, lower.tail = F)
+  return(c(
+    rsquared = grups.r2,
+    fstat = fstat,
+    pval = grups.pval
+  ))
+}
+
+misuper3 <- function(tot){
+  
+  ### obesidad
+  
+  mdl2 <- model.matrix( ~ 0 + obesidad)
+  colnames(mdl2) <-c("No","O")
+  contraste <- c("O-No")
+
+  contrastes <-
+    makeContrasts(contrasts = contraste, levels = colnames(mdl2))
+  fit <- lmFit(t(tot), design = mdl2)
+  
+  fit2 <- contrasts.fit(fit, contrastes)
+  fit2 <- eBayes(fit2)
+  coeficientes <- coef(fit2)
+  coeficientes.obesidad <- coeficientes
+  cn <- dim(coeficientes)[2]
+  res.pdf <-
+    lapply(1:cn, function(x)
+      topTable(fit2, coef = x, number = Inf))
+  res.pdf2 <-
+    as.data.frame(Reduce("cbind", (lapply(res.pdf, function(x)
+      x$P.Value))))
+  colnames(res.pdf2) <- "O.No"
+  rownames(res.pdf2) <- rownames(coeficientes)
+  obese <- res.pdf2
+  obese.fit <- apply(tot,2,function(y) auxlm(y,obesidad))
+  mdl2 <- model.matrix( ~ 0 + grupo)
+  colnames(mdl2) <-c("Female","PCOS","Male")
+  contraste <- c("PCOS-Female","PCOS-Male","Male-Female")
+
+  contrastes <-
+    makeContrasts(contrasts = contraste, levels = colnames(mdl2))
+  fit <- lmFit(t(tot), design = mdl2)
+  fit2 <- contrasts.fit(fit, contrastes)
+  fit2 <- eBayes(fit2)
+  coeficientes <- coef(fit2)
+  coefficientes.grupo <- coeficientes
+  cn <- dim(coeficientes)[2]
+  res.pdf <-
+    lapply(1:cn, function(x)
+      topTable(fit2, coef = x, number = Inf))
+  res.pdf2 <-
+    as.data.frame(Reduce("cbind", (lapply(res.pdf, function(x)
+      x$P.Value))))
+  colnames(res.pdf2) <- c("PF","PM","MF")
+  rownames(res.pdf2) <- rownames(coeficientes)
+  
+  grups <- res.pdf2
+  grups.fit <- apply(tot,2,function(y) auxlm(y,grupo))
+
+  mdl2 <- model.matrix( ~ 0 + interaccion)
+  
+  colnames(mdl2) <- gsub("interaccion", "", colnames(mdl2))
+  colnames(mdl2) <- c("FNO","PCOSNO","MALENO","FO","PCOSO","MALEO")
+  contraste <- c(
+    no_pcos_female = "PCOSNO-FNO",
+    no_pcos_male = "PCOSNO-MALENO",
+    no_sexo_control = "MALENO-FNO",
+    o_pcos_female = "PCOSO-FO",
+    o_pcos_male = "PCOSO-MALEO",
+    o_sexo_control = "MALEO-FO",
+    pcos = "PCOSO-PCOSNO",
+    male = "MALEO-MALENO",
+    female = "FO-FNO"
+  )
+  
+  colnames(mdl2) <- gsub("interaccion", "", colnames(mdl2))
+  
+  contrastes <-
+    makeContrasts(contrasts = contraste, levels = colnames(mdl2))
+  fit <- lmFit(t(tot), design = mdl2)
+  fit2 <- contrasts.fit(fit, contrastes)
+  fit2 <- eBayes(fit2)
+  coeficientes <- coef(fit2, Inf)
+  coeficientes.interact <- coeficientes
+  cn <- dim(coeficientes)[2]
+  res.pdf <-
+    lapply(1:cn, function(x)
+      topTable(fit2, coef = x, number = Inf))
+  res.pdf2 <-
+    Reduce("cbind", (lapply(res.pdf, function(x)
+      x$adj.P.Val)))
+  rownames(res.pdf2) <- rownames(coeficientes)
+  colnames(res.pdf2) <- colnames(coeficientes)
+  interact <- res.pdf2
+  interact.fit <- apply(tot,2,function(y) auxlm(y,interaccion))
+
+
+  pvalores <- data.frame(obese,
+                       grups,
+                       interact)
+  
+  medias <- data.frame(coeficientes.obesidad,
+                       coefficientes.grupo,
+                       coeficientes.interact)
+  colnames(pvalores) <- colnames(medias)
+  medias$variables <- rownames(medias)
+  pvalores$variables <- rownames(pvalores)
+  retorno <- list(pvalores=pvalores,
+                  medias=medias,
+                  gof = list(obesidad=obese.fit,
+                             grupo = grups.fit,
+                             interaccion = interact.fit))
+ 
+}
+
+```
+
+```{r}
+
+prueba <- misuper3(post)
+fun_summary <- function(prueba) {
+  
+  p<- ncol(prueba$medias)
+  k <- nrow(prueba$medias)
+  obese.gof <- as.data.frame(t(prueba$gof$obesidad))
+  grupo.gof <- as.data.frame(t(prueba$gof$grupo))
+  inter.gof <- as.data.frame(t(prueba$gof$interaccion))
+  
+  O.No <- data.frame(obese.gof,
+                       mean = prueba$medias$O.No,
+                       pval = prueba$pvalores$O.No)
+  
+  PCOS.Female <- data.frame(grupo.gof,mean=prueba$medias$PCOS.Female,
+                            pval = prueba$pvalores$PCOS.Female)
+  PCOS.Male <- data.frame(grupo.gof,mean=prueba$medias$PCOS.Male,
+                            pval = prueba$pvalores$PCOS.Male)
+  Female.Male <- data.frame(grupo.gof,mean=prueba$medias$Male.Female,
+                            pval = prueba$pvalores$Male.Female)
+  MALENO.FNO <-  data.frame(inter.gof,mean=prueba$medias$MALENO.FNO,
+                            pval = prueba$pvalores$MALENO.FNO)
+  PCOSNO.FNO <-  data.frame(inter.gof,mean=prueba$medias$PCOSNO.FNO,
+                            pval = prueba$medias$PCOSNO.FNO)
+  PCOSNO.MALENO <-  data.frame(inter.gof,mean=prueba$medias$PCOSNO.MALENO,
+                            pval = prueba$medias$PCOSNO.MALENO)
+    
+  MALEO.FO <-  data.frame(inter.gof,mean=prueba$medias$MALEO.FO,
+                            pval = prueba$pvalores$MALEO.FO)
+  PCOSO.FO <-  data.frame(inter.gof,mean=prueba$medias$PCOSO.FO,
+                            pval = prueba$medias$PCOSO.FO)
+  PCOSO.MALEO <-  data.frame(inter.gof,mean=prueba$medias$PCOSO.MALEO,
+                            pval = prueba$medias$PCOSO.MALEO)
+  
+  PCOSO.PCOSNO <- data.frame(inter.gof,mean=prueba$medias$PCOSO.PCOSNO,
+                             pval = prueba$medias$PCOSO.PCOSNO)
+  
+  FO.FNO <- data.frame(inter.gof,mean=prueba$medias$FO.FNO,
+                             pval = prueba$medias$FO.FNO)
+  MALEO.MALENO <- data.frame(inter.gof,mean=prueba$medias$MALEO.MALENO,
+                             pval = prueba$medias$MALEO.MALENO)
+  
+  
+  retorno <- list(O.No=O.No,
+                  PCOS.Female=PCOS.Female,
+                  PCOS.Male = PCOS.Male,
+                  Female.Male = Female.Male,
+                  PCOSNO.FNO = PCOSNO.FNO,
+                  PCOSNO.MALENO = PCOSNO.MALENO,
+                  MALENO.FNO = MALENO.FNO,
+                  PCOSO.FO = PCOSO.FO,
+                  PCOSO.MALEO = PCOSO.MALEO,
+                  MALENO.FNO = MALENO.FNO,
+                  PCOSO.PCOSNO = PCOSO.PCOSNO,
+                  FO.FNO =FO.FNO,
+                  MALEO.MALENO =MALEO.MALENO)
+  return(retorno)
+                  
+}
+
+
+biomarcadores_lista <- fun_summary(prueba)
+
+selected_biomarkers <- lapply(biomarcadores_lista, function(x) x[x$pval<0.05 & x$pval.value <0.05,] )
+```
+
+<!-- BIOMARCADORES DE LA OBESIDAD -->
+
+<!-- Tenemos en cuenta el ajuste del post y la diferencia entre medias -->
+
+<!-- ```{r} -->
+
+<!-- biomarcadores_obesos <- biomarcadores_lista$O.No -->
+
+<!-- biomarcadores_obesos <- biomarcadores_obesos[biomarcadores_obesos$pval.value<0.05 & biomarcadores_obesos$pval< 0.05,] -->
+
+<!-- ``` -->
+
+<!-- BIOMARCADORES DE LAS MUJERES-PCOS -->
+
+<!-- ```{r} -->
+
+<!-- biomarcadores_PCOSfemales <- biomarcadores_lista$PCOS.Female -->
+
+<!-- biomarcadores_PCOSfemales <- biomarcadores_PCOSfemales[biomarcadores_PCOSfemales$pval.value<0.05 & biomarcadores_PCOSfemales$pval< 0.05,] -->
+
+<!-- ``` -->
+
+<!-- BIOMARCADORES DE LAS MUJERES-MALE -->
+
+<!-- ```{r} -->
+
+<!-- biomarcadores_malefemales <- biomarcadores_lista$Female.Male -->
+
+<!-- biomarcadores_malefemales <- biomarcadores_malefemales[biomarcadores_malefemales$pval.value<0.05 & biomarcadores_malefemales$pval< 0.05,] -->
+
+<!-- ``` -->
+
+<!-- BIOMARCADORES DE LAS PCOS CON HOMBRES -->
+
+<!-- ```{r} -->
+
+<!-- biomarcadores_malePCOS<- biomarcadores_lista$PCOS.Male -->
+
+<!-- biomarcadores_malePCOS <- biomarcadores_malePCOS[biomarcadores_malePCOS$pval.value<0.05 & biomarcadores_malePCOS$pval< 0.05,] -->
+
+<!-- ``` -->
+
+<!-- CUALES BIOMARCADORES SON ESPECIFICOS DE LA DIFERENCIA ENTRE SUJETOS CONTROLES, MUJERES, Y HOMBRES PCOS -->
+
+<!-- ```{r} -->
+
+<!-- only_FM <- -->
+
+<!--   rownames(biomarcadores_malefemales)[-unique(c( -->
+
+<!--     which( -->
+
+<!--       rownames(biomarcadores_malefemales) %in% rownames(biomarcadores_PCOSfemales) -->
+
+<!--     ), -->
+
+<!--     which( -->
+
+<!--       rownames(biomarcadores_malefemales) %in% rownames(biomarcadores_malePCOS) -->
+
+<!--     ) -->
+
+<!--   ))] -->
+
+<!-- only_FP <- -->
+
+<!--   rownames(biomarcadores_PCOSfemales)[-unique(c( -->
+
+<!--     which( -->
+
+<!--       rownames(biomarcadores_PCOSfemales) %in% rownames(biomarcadores_malefemales) -->
+
+<!--     ), -->
+
+<!--     which( -->
+
+<!--       rownames(biomarcadores_PCOSfemales) %in% rownames(biomarcadores_malePCOS) -->
+
+<!--     ) -->
+
+<!--   ))] -->
+
+<!-- only_MP <- -->
+
+<!--   rownames(biomarcadores_malePCOS)[-unique(c( -->
+
+<!--     which( -->
+
+<!--       rownames(biomarcadores_malePCOS) %in% rownames(biomarcadores_malefemales) -->
+
+<!--     ), -->
+
+<!--     which( -->
+
+<!--       rownames(biomarcadores_malePCOS) %in% rownames(biomarcadores_PCOSfemales) -->
+
+<!--     ) -->
+
+<!--   ))] -->
+
+<!-- ``` -->
+
+<!-- ```{r} -->
+
+<!-- fun_explicacion <- function(x1,x2,x3){ -->
+
+<!--   only_x1 <- x1[!x1 %in% unique(c(x2,x3))] -->
+
+<!--   only_x2 <- x2[!x2 %in% unique(c(x1,x3))] -->
+
+<!--   only_x3 <- x3[!x3 %in% unique(c(x2,x1))] -->
+
+<!--   retorno <- list(FM=only_x1, -->
+
+<!--                   FP= only_x2, -->
+
+<!--                   MP = only_x3) -->
+
+<!--   return(retorno) -->
+
+<!-- } -->
+
+<!-- ``` -->
+
+<!-- ```{r} -->
+
+<!-- fun_explicacion(rownames(biomarcadores_malefemales), -->
+
+<!--                 rownames(biomarcadores_PCOSfemales), -->
+
+<!--                 rownames(biomarcadores_malePCOS)) -->
+
+<!-- ``` -->
+
+<!-- ```{r} -->
+
+<!-- res <- lapply(biomarcadores_lista,function(x) x[x$pval.value < 0.05 & x$pval <0.05,]) -->
+
+<!-- no  <- fun_explicacion(x1=rownames(res$MALENO.FNO), -->
+
+<!--                 x2 = rownames(res$PCOSNO.FNO), -->
+
+<!--                 x3 = rownames(res$PCOSNO.MALENO)) -->
+
+<!-- o <- fun_explicacion(x1=rownames(res$MALEO.FO), -->
+
+<!--                 x2 = rownames(res$PCOSO.FO), -->
+
+<!--                 x3 = rownames(res$PCOSO.MALEO)) -->
+
+<!-- ``` -->
+
+<!-- CUALES SON comunes -->
+
+<!-- ```{r} -->
+
+<!-- comunes <- intersect(intersect(no$FP,no$MP),intersect(o$FP,o$MP)) # ni una -->
+
+<!-- (comunes <- intersect(no$FP,no$MP))# ni una x2 -->
+
+<!-- (comunes <- rownames(res$PCOSO.PCOS)[rownames(res$PCOSO.PCOSNO) %in% o$FP]) # diferentes en obesidad PCOS y mujeres -->
+
+<!-- (comunes <- rownames(res$PCOSO.PCOS)[!rownames(res$PCOSO.PCOSNO) %in% o$FP]) # diferentes en obesidad PCOS y mujeres -->
+
+<!-- ``` -->
+
+<!-- <!-- ```{r} -->
+
+--\>
+
+<!-- <!-- library(bnlearn) -->
+
+--\>
+
+<!-- <!-- x <-  as.data.frame(R3) -->
+
+--\>
+
+<!-- <!-- network <- hc(x[,1:10]) -->
+
+--\>
+
+<!-- <!-- est.para <- bn.fit(network,x[,1:10]) -->
+
+--\>
+
+<!-- <!-- graphviz.plot(est.para,shape = "ellipse",fontsize = 15) -->
+
+--\>
+
+<!-- <!-- ``` -->
+
+--\>
+
+<!-- <!-- ```{r} -->
+
+--\>
+
+<!-- <!-- lista.results <- misuper2(factores) -->
+
+--\>
+
+<!-- <!-- R <- factores %*% t(pesos[biomarcadores,]) -->
+
+--\>
+
+<!-- <!-- lista.results2 <- misuper2(cbind(R,covariables)) -->
+
+--\>
+
+<!-- <!-- l <- lista.results$medias -->
+
+--\>
+
+<!-- <!-- l <- l[,-ncol(l)] -->
+
+--\>
+
+<!-- <!-- f <- lista.results2$medias -->
+
+--\>
+
+<!-- <!-- f <- f[,-ncol(f)] -->
+
+--\>
+
+<!-- <!-- csa <- corr.test(t(l),t(f)) -->
+
+--\>
+
+<!-- <!-- r <- csa$r -->
+
+--\>
+
+<!-- <!-- dim(r) -->
+
+--\>
+
+<!-- <!-- dim(l) # facrores -->
+
+--\>
+
+<!-- <!-- dim(f) # senal -->
+
+--\>
+
+<!-- <!-- r %*% f -->
+
+--\>
+
+<!-- <!-- ``` -->
+
+--\>
+
+<!-- <!-- ```{r} -->
+
+--\>
+
+<!-- <!-- csa <- as.matrix(t(l)) %*%  r -->
+
+--\>
+
+<!-- <!-- prueba <- as.data.frame(t(csa)) -->
+
+--\>
+
+<!-- <!-- prueba$omica <- ifelse(rownames(prueba) %in% rownames(modelo@data$metaboloma$group1),"METABOLOMA",NA) -->
+
+--\>
+
+<!-- <!-- prueba$omica <- ifelse(rownames(prueba) %in% rownames(modelo@data$ip$group1),"PROTEOMA",prueba$omica) -->
+
+--\>
+
+<!-- <!-- prueba$omica <- ifelse(rownames(prueba) %in% rownames(modelo@data$metagenoma$group1),"MICROBIOMA",prueba$omica) -->
+
+--\>
+
+<!-- <!-- prueba$omica <- ifelse(rownames(prueba) %in% colnames(modelo@samples_metadata),"CLINICAS",prueba$omica) -->
+
+--\>
+
+<!-- <!-- apply(prueba,1,) -->
+
+--\>
+
+<!-- <!-- ``` -->
+
+--\>
+
+<!-- <!-- ```{r} -->
+
+--\>
+
+<!-- <!-- misuper <- function(tot,biomarcadores){ -->
+
+--\>
+
+<!-- <!--   ### obesidad -->
+
+--\>
+
+<!-- <!--   tot <- tot[,biomarcadores] -->
+
+--\>
+
+<!-- <!--   mdl2 <- model.matrix( ~ 0 + obesidad) -->
+
+--\>
+
+<!-- <!--   colnames(mdl2) <-c("No","O") -->
+
+--\>
+
+<!-- <!--   contraste <- c("O-No") -->
+
+--\>
+
+<!-- <!--   contrastes <- -->
+
+--\>
+
+<!-- <!--     makeContrasts(contrasts = contraste, levels = colnames(mdl2)) -->
+
+--\>
+
+<!-- <!--   fit <- lmFit(t(tot), design = mdl2) -->
+
+--\>
+
+<!-- <!--   fit2 <- contrasts.fit(fit, contrastes) -->
+
+--\>
+
+<!-- <!--   fit2 <- eBayes(fit2) -->
+
+--\>
+
+<!-- <!--   coeficientes <- coef(fit2) -->
+
+--\>
+
+<!-- <!--   coeficientes.obesidad <- coeficientes -->
+
+--\>
+
+<!-- <!--   cn <- dim(coeficientes)[2] -->
+
+--\>
+
+<!-- <!--   res.pdf <- -->
+
+--\>
+
+<!-- <!--     lapply(1:cn, function(x) -->
+
+--\>
+
+<!-- <!--       topTable(fit2, coef = x, number = Inf)) -->
+
+--\>
+
+<!-- <!--   res.pdf2 <- -->
+
+--\>
+
+<!-- <!--     as.data.frame(Reduce("cbind", (lapply(res.pdf, function(x) -->
+
+--\>
+
+<!-- <!--       x$P.Value)))) -->
+
+--\>
+
+<!-- <!--   colnames(res.pdf2) <- "O.No" -->
+
+--\>
+
+<!-- <!--   rownames(res.pdf2) <- rownames(coeficientes) -->
+
+--\>
+
+<!-- <!--   obese <- res.pdf2 -->
+
+--\>
+
+<!-- <!--   mdl2 <- model.matrix( ~ 0 + grupo) -->
+
+--\>
+
+<!-- <!--   colnames(mdl2) <-c("Female","PCOS","Male") -->
+
+--\>
+
+<!-- <!--   contraste <- c("PCOS-Female","PCOS-Male","Male-Female") -->
+
+--\>
+
+<!-- <!--   contrastes <- -->
+
+--\>
+
+<!-- <!--     makeContrasts(contrasts = contraste, levels = colnames(mdl2)) -->
+
+--\>
+
+<!-- <!--   fit <- lmFit(t(tot), design = mdl2) -->
+
+--\>
+
+<!-- <!--   fit2 <- contrasts.fit(fit, contrastes) -->
+
+--\>
+
+<!-- <!--   fit2 <- eBayes(fit2) -->
+
+--\>
+
+<!-- <!--   coeficientes <- coef(fit2) -->
+
+--\>
+
+<!-- <!--   coefficientes.grupo <- coeficientes -->
+
+--\>
+
+<!-- <!--   cn <- dim(coeficientes)[2] -->
+
+--\>
+
+<!-- <!--   res.pdf <- -->
+
+--\>
+
+<!-- <!--     lapply(1:cn, function(x) -->
+
+--\>
+
+<!-- <!--       topTable(fit2, coef = x, number = Inf)) -->
+
+--\>
+
+<!-- <!--   res.pdf2 <- -->
+
+--\>
+
+<!-- <!--     as.data.frame(Reduce("cbind", (lapply(res.pdf, function(x) -->
+
+--\>
+
+<!-- <!--       x$P.Value     -->
+
+--\>
+
+<!-- <!-- )))) -->
+
+--\>
+
+<!-- <!--   colnames(res.pdf2) <- c("PF","PM","MF") -->
+
+--\>
+
+<!-- <!--   rownames(res.pdf2) <- rownames(coeficientes) -->
+
+--\>
+
+<!-- <!--   grups <- res.pdf2 -->
+
+--\>
+
+<!-- <!--   interaccion <- interaction(grupo,obesidad) -->
+
+--\>
+
+<!-- <!--   mdl2 <- model.matrix( ~ 0 + interaccion) -->
+
+--\>
+
+<!-- <!--   colnames(mdl2) <- gsub("interaccion", "", colnames(mdl2)) -->
+
+--\>
+
+<!-- <!--   colnames(mdl2) <- c("FNO","PCOSNO","MALENO","FO","PCOSO","MALEO") -->
+
+--\>
+
+<!-- <!--   contraste <- c( -->
+
+--\>
+
+<!-- <!--     no_pcos_female = "PCOSNO-FNO", -->
+
+--\>
+
+<!-- <!--     no_pcos_male = "PCOSNO-MALENO", -->
+
+--\>
+
+<!-- <!--     no_sexo_control = "MALENO-FNO", -->
+
+--\>
+
+<!-- <!--     o_pcos_female = "PCOSO-FO", -->
+
+--\>
+
+<!-- <!--     o_pcos_male = "PCOSO-MALEO", -->
+
+--\>
+
+<!-- <!--     o_sexo_control = "MALEO-FO", -->
+
+--\>
+
+<!-- <!--     pcos = "PCOSO-PCOSNO", -->
+
+--\>
+
+<!-- <!--     male = "MALEO-MALENO", -->
+
+--\>
+
+<!-- <!--     female = "FO-FNO" -->
+
+--\>
+
+<!-- <!--   ) -->
+
+--\>
+
+<!-- <!--   colnames(mdl2) <- gsub("interaccion", "", colnames(mdl2)) -->
+
+--\>
+
+<!-- <!--   contrastes <- -->
+
+--\>
+
+<!-- <!--     makeContrasts(contrasts = contraste, levels = colnames(mdl2)) -->
+
+--\>
+
+<!-- <!--   fit <- lmFit(t(tot), design = mdl2) -->
+
+--\>
+
+<!-- <!--   fit2 <- contrasts.fit(fit, contrastes) -->
+
+--\>
+
+<!-- <!--   fit2 <- eBayes(fit2) -->
+
+--\>
+
+<!-- <!--   coeficientes <- coef(fit2, Inf) -->
+
+--\>
+
+<!-- <!--   coeficientes.interact <- coeficientes -->
+
+--\>
+
+<!-- <!--   cn <- dim(coeficientes)[2] -->
+
+--\>
+
+<!-- <!--   res.pdf <- -->
+
+--\>
+
+<!-- <!--     lapply(1:cn, function(x) -->
+
+--\>
+
+<!-- <!--       topTable(fit2, coef = x, number = Inf)) -->
+
+--\>
+
+<!-- <!--   res.pdf2 <- -->
+
+--\>
+
+<!-- <!--     Reduce("cbind", (lapply(res.pdf, function(x) -->
+
+--\>
+
+<!-- <!--       x$adj.P.Val))) -->
+
+--\>
+
+<!-- <!--   rownames(res.pdf2) <- rownames(coeficientes) -->
+
+--\>
+
+<!-- <!--   colnames(res.pdf2) <- colnames(coeficientes) -->
+
+--\>
+
+<!-- <!--   interact <- res.pdf2 -->
+
+--\>
+
+<!-- <!--   pvalores <- data.frame(obese, -->
+
+--\>
+
+<!-- <!--                        grups, -->
+
+--\>
+
+<!-- <!--                        interact) -->
+
+--\>
+
+<!-- <!--   medias <- data.frame(coeficientes.obesidad, -->
+
+--\>
+
+<!-- <!--                        coefficientes.grupo, -->
+
+--\>
+
+<!-- <!--                        coeficientes.interact) -->
+
+--\>
+
+<!-- <!--   colnames(pvalores) <- colnames(medias) -->
+
+--\>
+
+<!-- <!--   medias$variables <- rownames(medias) -->
+
+--\>
+
+<!-- <!--   pvalores$variables <- rownames(pvalores) -->
+
+--\>
+
+<!-- <!--   retorno <- list(pvalores=pvalores, -->
+
+--\>
+
+<!-- <!--                   medias=medias) -->
+
+--\>
+
+<!-- <!-- } -->
+
+--\>
+
+<!-- <!-- ``` -->
+
+--\>
+
+<!-- <!-- ```{r} -->
+
+--\>
+
+<!-- <!-- factores.df <- as.data.frame(get_factors(modelo)$group1) -->
+
+--\>
+
+<!-- <!-- ggplot(factores.df,aes(Factor1,Factor2,color=obesidad))+geom_point() -->
+
+--\>
+
+<!-- <!-- ggplot(factores.df,aes(Factor2,Factor3,color=obesidad))+geom_point() -->
+
+--\>
+
+<!-- <!-- ggplot(factores.df,aes(Factor1,Factor3,color=obesidad))+geom_point() -->
+
+--\>
+
+<!-- <!-- ``` -->
+
+--\>
+
+<!-- <!-- ```{r} -->
+
+--\>
+
+<!-- <!-- ``` -->
+
+--\>
+
+<!-- <!-- ```{r} -->
+
+--\>
+
+<!-- <!-- pruebafun <- function(R) { -->
+
+--\>
+
+<!-- <!--   R.b <- corr.test(R) -->
+
+--\>
+
+<!-- <!--   diag(R.b$p) <- 1 -->
+
+--\>
+
+<!-- <!--   R.b$p[upper.tri(R.b$p)] <- R.b$p[lower.tri(R.b$p)] -->
+
+--\>
+
+<!-- <!--   csa <- R.b$p -->
+
+--\>
+
+<!-- <!--   csa2 <- R.b$p -->
+
+--\>
+
+<!-- <!--   csa2[colnames(csa) %in% rownames(modelo@data$metaboloma$group1), -->
+
+--\>
+
+<!-- <!--        colnames(csa) %in% rownames(modelo@data$ip$group1)] <- -->
+
+--\>
+
+<!-- <!--     ifelse(csa[colnames(csa) %in% rownames(modelo@data$metaboloma$group1), -->
+
+--\>
+
+<!-- <!--                colnames(csa) %in% rownames(modelo@data$ip$group1)] < 0.05, "METABOLOMA-PROTEOMA", NA) -->
+
+--\>
+
+<!-- <!--   csa2[colnames(csa) %in% rownames(modelo@data$metaboloma$group1), -->
+
+--\>
+
+<!-- <!--        colnames(csa) %in% rownames(modelo@data$metagenoma$group1)] <- -->
+
+--\>
+
+<!-- <!--     ifelse(csa[colnames(csa) %in% rownames(modelo@data$metaboloma$group1), -->
+
+--\>
+
+<!-- <!--                colnames(csa) %in% rownames(modelo@data$metagenoma$group1)] < 0.05, "METABOLOMA-METAGENOMA", NA) -->
+
+--\>
+
+<!-- <!--   csa2[colnames(csa) %in% rownames(modelo@data$metagenoma$group1), -->
+
+--\>
+
+<!-- <!--        colnames(csa) %in% rownames(modelo@data$ip$group1)] <- -->
+
+--\>
+
+<!-- <!--     ifelse(csa[colnames(csa) %in% rownames(modelo@data$metagenoma$group1), -->
+
+--\>
+
+<!-- <!--                colnames(csa) %in% rownames(modelo@data$ip$group1)] < 0.05, "PROTEOMA-METAGENOMA", NA) -->
+
+--\>
+
+<!-- <!--   csa2[colnames(csa) %in% rownames(modelo@data$metaboloma$group1), -->
+
+--\>
+
+<!-- <!--        colnames(csa) %in% rownames(modelo@data$metaboloma$group1)] <- -->
+
+--\>
+
+<!-- <!--     ifelse(csa[colnames(csa) %in% rownames(modelo@data$metaboloma$group1), -->
+
+--\>
+
+<!-- <!--                colnames(csa) %in% rownames(modelo@data$metaboloma$group1)] < 0.05, "METABOLOMA-METABOLOMA", NA) -->
+
+--\>
+
+<!-- <!--   csa2[colnames(csa) %in% rownames(modelo@data$metagenoma$group1), -->
+
+--\>
+
+<!-- <!--        colnames(csa) %in% rownames(modelo@data$metagenoma$group1)] <- -->
+
+--\>
+
+<!-- <!--     ifelse(csa[colnames(csa) %in% rownames(modelo@data$metagenoma$group1), -->
+
+--\>
+
+<!-- <!--                colnames(csa) %in% rownames(modelo@data$metagenoma$group1)] < 0.05, "METAGENOMA-METAGENOMA", NA) -->
+
+--\>
+
+<!-- <!--   csa2[colnames(csa) %in% rownames(modelo@data$ip$group1), -->
+
+--\>
+
+<!-- <!--        colnames(csa) %in% rownames(modelo@data$ip$group1)] <- -->
+
+--\>
+
+<!-- <!--     ifelse(csa[colnames(csa) %in% rownames(modelo@data$ip$group1), -->
+
+--\>
+
+<!-- <!--                colnames(csa) %in% rownames(modelo@data$ip$group1)] < 0.05, "PROTEOMA-PROTEOMA", NA) -->
+
+--\>
+
+<!-- <!--   csa2[lower.tri(csa2)] <- NA -->
+
+--\>
+
+<!-- <!--   diag(csa2) <- NA -->
+
+--\>
+
+<!-- <!--   res <- -->
+
+--\>
+
+<!-- <!--     data.frame( -->
+
+--\>
+
+<!-- <!--       metagenoma = length(which(csa2 == "METAGENOMA-METAGENOMA")), -->
+
+--\>
+
+<!-- <!--       metaboloma = length(which(csa2 == "METABOLOMA-METABOLOMA")), -->
+
+--\>
+
+<!-- <!--       proteoma = length(which(csa2 == "PROTEOMA-PROTEOMA")), -->
+
+--\>
+
+<!-- <!--       metagenoma_proteoma = length(which(csa2 == "PROTEOMA-METAGENOMA")), -->
+
+--\>
+
+<!-- <!--       metagenoma_metaboloma = length(which(csa2 == "METABOLOMA-METAGENOMA")), -->
+
+--\>
+
+<!-- <!--       proteoma_metaboloma = length(which(csa2 == "METABOLOMA-PROTEOMA")) -->
+
+--\>
+
+<!-- <!--     ) -->
+
+--\>
+
+<!-- <!--   return(res) -->
+
+--\>
+
+<!-- <!-- } -->
+
+--\>
+
+<!-- <!-- midf <- (list(obesidad=pruebafun(R[obesidad=="Obese",biomarcadores]), -->
+
+--\>
+
+<!-- <!--                    noObesidad=pruebafun(R[obesidad=="No Obese",biomarcadores]), -->
+
+--\>
+
+<!-- <!--                    females=pruebafun(R[grupo=="Female",biomarcadores]), -->
+
+--\>
+
+<!-- <!--                    PCOS=pruebafun(R[grupo=="PCOS",biomarcadores]), -->
+
+--\>
+
+<!-- <!--                    Male=pruebafun(R[grupo=="Male",biomarcadores]), -->
+
+--\>
+
+<!-- <!--                    femnoob=pruebafun(R[obesidad=="No Obese" & grupo=="Female",biomarcadores]), -->
+
+--\>
+
+<!-- <!--                    pcosnoob=pruebafun(R[obesidad=="No Obese" & grupo=="PCOS",biomarcadores]), -->
+
+--\>
+
+<!-- <!--                    malesnoob=pruebafun(R[obesidad=="No Obese" & grupo=="Male",biomarcadores]), -->
+
+--\>
+
+<!-- <!--                    femob=pruebafun(R[obesidad=="Obese" & grupo=="Female",biomarcadores]), -->
+
+--\>
+
+<!-- <!--                    maleob=pruebafun(R[obesidad=="Obese" & grupo=="Male",biomarcadores]), -->
+
+--\>
+
+<!-- <!--                    pcosob=pruebafun(R[obesidad=="Obese" & grupo=="PCOS",biomarcadores]))) -->
+
+--\>
+
+<!-- <!-- midf2 <- Reduce("rbind",midf) -->
+
+--\>
+
+<!-- <!-- rownames(midf2)<- names(midf) -->
+
+--\>
+
+<!-- <!-- midf2 <- as.data.frame(t(midf2)) -->
+
+--\>
+
+<!-- <!-- ``` -->
+
+--\>
+
+<!-- <!-- ```{r} -->
+
+--\>
+
+<!-- <!-- midf2$sujetos <- rownames(midf2) -->
+
+--\>
+
+<!-- <!-- ``` -->
+
+--\>
+
+<!-- <!-- ```{r} -->
+
+--\>
+
+<!-- <!-- p1<-ggplot(data=midf2, aes(x=sujetos, y=obesidad)) + -->
+
+--\>
+
+<!-- <!--   geom_bar(stat="identity")+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+coord_flip() -->
+
+--\>
+
+<!-- <!-- p2<-ggplot(data=midf2, aes(x=sujetos, y=noObesidad)) + -->
+
+--\>
+
+<!-- <!--   geom_bar(stat="identity")+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+coord_flip() -->
+
+--\>
+
+<!-- <!-- p3<-ggplot(data=midf2, aes(x=sujetos, y=females)) + -->
+
+--\>
+
+<!-- <!--   geom_bar(stat="identity")+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+coord_flip() -->
+
+--\>
+
+<!-- <!-- p4<-ggplot(data=midf2, aes(x=sujetos, y=PCOS)) + -->
+
+--\>
+
+<!-- <!--   geom_bar(stat="identity")+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+coord_flip() -->
+
+--\>
+
+<!-- <!-- p5<-ggplot(data=midf2, aes(x=sujetos, y=Male)) + -->
+
+--\>
+
+<!-- <!--   geom_bar(stat="identity")+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+coord_flip() -->
+
+--\>
+
+<!-- <!-- p6<-ggplot(data=midf2, aes(x=sujetos, y=femnoob)) + -->
+
+--\>
+
+<!-- <!--   geom_bar(stat="identity")+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+coord_flip() -->
+
+--\>
+
+<!-- <!-- p7<-ggplot(data=midf2, aes(x=sujetos, y=femnoob)) + -->
+
+--\>
+
+<!-- <!--   geom_bar(stat="identity")+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+coord_flip() -->
+
+--\>
+
+<!-- <!-- p8<-ggplot(data=midf2, aes(x=sujetos, y=pcosnoob)) + -->
+
+--\>
+
+<!-- <!--   geom_bar(stat="identity")+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+coord_flip() -->
+
+--\>
+
+<!-- <!-- p9<-ggplot(data=midf2, aes(x=sujetos, y=malesnoob)) + -->
+
+--\>
+
+<!-- <!--   geom_bar(stat="identity")+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+coord_flip() -->
+
+--\>
+
+<!-- <!-- p10<-ggplot(data=midf2, aes(x=sujetos, y=pcosob)) + -->
+
+--\>
+
+<!-- <!--   geom_bar(stat="identity")+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+coord_flip() -->
+
+--\>
+
+<!-- <!-- p1;p2;p3;p4;p5;p6;p7;p8;p9 -->
+
+--\>
+
+<!-- <!-- ``` -->
+
+--\>
+
+<!-- <!-- ## PRUEBA -->
+
+--\>
+
+<!-- <!-- ```{r} -->
+
+--\>
+
+<!-- <!-- library(ppcor) -->
+
+--\>
+
+<!-- <!-- R <- factores %*% t(pesos) -->
+
+--\>
+
+<!-- <!-- biomarcadores <- c(intersect_mg,intersect(mp,po)) -->
+
+--\>
+
+<!-- <!-- R3 <- cbind(R[,biomarcadores],covariables) -->
+
+--\>
+
+<!-- <!-- R3 <- R3[,-grep("edad",ignore.case = T,colnames(R3))] -->
+
+--\>
+
+<!-- <!-- ``` -->
+
+--\>
+
+<!-- <!-- ```{r} -->
+
+--\>
+
+<!-- <!-- partial <- pcor(R3) -->
+
+--\>
+
+<!-- <!-- ``` -->
+
+--\>
+
+<!-- <!-- ```{r} -->
+
+--\>
+
+<!-- <!-- correlation <- cor(R3) -->
+
+--\>
+
+<!-- <!-- stat <- partial$statistic -->
+
+--\>
+
+<!-- <!-- estimate <- partial$estimate -->
+
+--\>
+
+<!-- <!-- pval <- partial$p.value -->
+
+--\>
+
+<!-- <!-- dimnames(pval) <- dimnames(correlation) -->
+
+--\>
+
+<!-- <!-- diag(pval) <- 1 -->
+
+--\>
+
+<!-- <!-- pval[pval>0.05] <- NA -->
+
+--\>
+
+<!-- <!-- pval.melt <- reshape2::melt(pval) -->
+
+--\>
+
+<!-- <!-- blacklist <- unique(pval.melt[which(is.na(pval.melt$value)),c(1:2)]) -->
+
+--\>
+
+<!-- <!-- whiltelist <- unique(pval.melt[which(!is.na(pval.melt$value)),1:2]) -->
+
+--\>
+
+<!-- ``` -->
+
+<!-- ```{r} -->
+
+<!-- library(bnlearn) -->
+
+<!-- library(rbmn) -->
+
+<!-- stru <- iamb(R3,test = "cor",whitelist = whiltelist,blacklist = blacklist) -->
+
+<!-- ``` -->
+
+<!-- ```{r} -->
+
+<!-- library(Rgraphviz) -->
+
+<!-- graphviz.plot(stru,fontsize =80) -->
+
+<!-- ``` -->
+
+<!-- ```{r} -->
+
+<!-- library(bnlearn) -->
+
+<!-- x <-  as.data.frame(R3) -->
+
+<!-- network <- hc(x[,1:10]) -->
+
+<!-- est.para <- bn.fit(network,x[,1:10]) -->
+
+<!-- graphviz.plot(est.para,shape = "ellipse",fontsize = 15) -->
+
+<!-- ``` -->
+
+<!-- ```{r} -->
+
+<!-- lista.results <- misuper2(factores) -->
+
+<!-- R <- factores %*% t(pesos[biomarcadores,]) -->
+
+<!-- lista.results2 <- misuper2(cbind(R,covariables)) -->
+
+<!-- l <- lista.results$medias -->
+
+<!-- l <- l[,-ncol(l)] -->
+
+<!-- f <- lista.results2$medias -->
+
+<!-- f <- f[,-ncol(f)] -->
+
+<!-- csa <- corr.test(t(l),t(f)) -->
+
+<!-- r <- csa$r -->
+
+<!-- dim(r) -->
+
+<!-- dim(l) # facrores -->
+
+<!-- dim(f) # senal -->
+
+<!-- r %*% f -->
+
+<!-- ``` -->
+
+<!-- ```{r} -->
+
+<!-- csa <- as.matrix(t(l)) %*%  r -->
+
+<!-- prueba <- as.data.frame(t(csa)) -->
+
+<!-- prueba$omica <- ifelse(rownames(prueba) %in% rownames(modelo@data$metaboloma$group1),"METABOLOMA",NA) -->
+
+<!-- prueba$omica <- ifelse(rownames(prueba) %in% rownames(modelo@data$ip$group1),"PROTEOMA",prueba$omica) -->
+
+<!-- prueba$omica <- ifelse(rownames(prueba) %in% rownames(modelo@data$metagenoma$group1),"MICROBIOMA",prueba$omica) -->
+
+<!-- prueba$omica <- ifelse(rownames(prueba) %in% colnames(modelo@samples_metadata),"CLINICAS",prueba$omica) -->
+
+<!-- apply(prueba,1,) -->
+
+<!-- ``` -->
+
+<!-- ```{r} -->
+
+<!-- misuper <- function(tot,biomarcadores){ -->
+
+<!--   ### obesidad -->
+
+<!--   tot <- tot[,biomarcadores] -->
+
+<!--   mdl2 <- model.matrix( ~ 0 + obesidad) -->
+
+<!--   colnames(mdl2) <-c("No","O") -->
+
+<!--   contraste <- c("O-No") -->
+
+<!--   contrastes <- -->
+
+<!--     makeContrasts(contrasts = contraste, levels = colnames(mdl2)) -->
+
+<!--   fit <- lmFit(t(tot), design = mdl2) -->
+
+<!--   fit2 <- contrasts.fit(fit, contrastes) -->
+
+<!--   fit2 <- eBayes(fit2) -->
+
+<!--   coeficientes <- coef(fit2) -->
+
+<!--   coeficientes.obesidad <- coeficientes -->
+
+<!--   cn <- dim(coeficientes)[2] -->
+
+<!--   res.pdf <- -->
+
+<!--     lapply(1:cn, function(x) -->
+
+<!--       topTable(fit2, coef = x, number = Inf)) -->
+
+<!--   res.pdf2 <- -->
+
+<!--     as.data.frame(Reduce("cbind", (lapply(res.pdf, function(x) -->
+
+<!--       x$P.Value)))) -->
+
+<!--   colnames(res.pdf2) <- "O.No" -->
+
+<!--   rownames(res.pdf2) <- rownames(coeficientes) -->
+
+<!--   obese <- res.pdf2 -->
+
+<!--   mdl2 <- model.matrix( ~ 0 + grupo) -->
+
+<!--   colnames(mdl2) <-c("Female","PCOS","Male") -->
+
+<!--   contraste <- c("PCOS-Female","PCOS-Male","Male-Female") -->
+
+<!--   contrastes <- -->
+
+<!--     makeContrasts(contrasts = contraste, levels = colnames(mdl2)) -->
+
+<!--   fit <- lmFit(t(tot), design = mdl2) -->
+
+<!--   fit2 <- contrasts.fit(fit, contrastes) -->
+
+<!--   fit2 <- eBayes(fit2) -->
+
+<!--   coeficientes <- coef(fit2) -->
+
+<!--   coefficientes.grupo <- coeficientes -->
+
+<!--   cn <- dim(coeficientes)[2] -->
+
+<!--   res.pdf <- -->
+
+<!--     lapply(1:cn, function(x) -->
+
+<!--       topTable(fit2, coef = x, number = Inf)) -->
+
+<!--   res.pdf2 <- -->
+
+<!--     as.data.frame(Reduce("cbind", (lapply(res.pdf, function(x) -->
+
+<!--       x$P.Value     -->
+
+<!-- )))) -->
+
+<!--   colnames(res.pdf2) <- c("PF","PM","MF") -->
+
+<!--   rownames(res.pdf2) <- rownames(coeficientes) -->
+
+<!--   grups <- res.pdf2 -->
+
+<!--   interaccion <- interaction(grupo,obesidad) -->
+
+<!--   mdl2 <- model.matrix( ~ 0 + interaccion) -->
+
+<!--   colnames(mdl2) <- gsub("interaccion", "", colnames(mdl2)) -->
+
+<!--   colnames(mdl2) <- c("FNO","PCOSNO","MALENO","FO","PCOSO","MALEO") -->
+
+<!--   contraste <- c( -->
+
+<!--     no_pcos_female = "PCOSNO-FNO", -->
+
+<!--     no_pcos_male = "PCOSNO-MALENO", -->
+
+<!--     no_sexo_control = "MALENO-FNO", -->
+
+<!--     o_pcos_female = "PCOSO-FO", -->
+
+<!--     o_pcos_male = "PCOSO-MALEO", -->
+
+<!--     o_sexo_control = "MALEO-FO", -->
+
+<!--     pcos = "PCOSO-PCOSNO", -->
+
+<!--     male = "MALEO-MALENO", -->
+
+<!--     female = "FO-FNO" -->
+
+<!--   ) -->
+
+<!--   colnames(mdl2) <- gsub("interaccion", "", colnames(mdl2)) -->
+
+<!--   contrastes <- -->
+
+<!--     makeContrasts(contrasts = contraste, levels = colnames(mdl2)) -->
+
+<!--   fit <- lmFit(t(tot), design = mdl2) -->
+
+<!--   fit2 <- contrasts.fit(fit, contrastes) -->
+
+<!--   fit2 <- eBayes(fit2) -->
+
+<!--   coeficientes <- coef(fit2, Inf) -->
+
+<!--   coeficientes.interact <- coeficientes -->
+
+<!--   cn <- dim(coeficientes)[2] -->
+
+<!--   res.pdf <- -->
+
+<!--     lapply(1:cn, function(x) -->
+
+<!--       topTable(fit2, coef = x, number = Inf)) -->
+
+<!--   res.pdf2 <- -->
+
+<!--     Reduce("cbind", (lapply(res.pdf, function(x) -->
+
+<!--       x$adj.P.Val))) -->
+
+<!--   rownames(res.pdf2) <- rownames(coeficientes) -->
+
+<!--   colnames(res.pdf2) <- colnames(coeficientes) -->
+
+<!--   interact <- res.pdf2 -->
+
+<!--   pvalores <- data.frame(obese, -->
+
+<!--                        grups, -->
+
+<!--                        interact) -->
+
+<!--   medias <- data.frame(coeficientes.obesidad, -->
+
+<!--                        coefficientes.grupo, -->
+
+<!--                        coeficientes.interact) -->
+
+<!--   colnames(pvalores) <- colnames(medias) -->
+
+<!--   medias$variables <- rownames(medias) -->
+
+<!--   pvalores$variables <- rownames(pvalores) -->
+
+<!--   retorno <- list(pvalores=pvalores, -->
+
+<!--                   medias=medias) -->
+
+<!-- } -->
+
+<!-- ``` -->
+
+<!-- ```{r} -->
+
+<!-- factores.df <- as.data.frame(get_factors(modelo)$group1) -->
+
+<!-- ggplot(factores.df,aes(Factor1,Factor2,color=obesidad))+geom_point() -->
+
+<!-- ggplot(factores.df,aes(Factor2,Factor3,color=obesidad))+geom_point() -->
+
+<!-- ggplot(factores.df,aes(Factor1,Factor3,color=obesidad))+geom_point() -->
+
+<!-- ``` -->
+
+<!-- ```{r} -->
+
+<!-- ``` -->
+
+<!-- ```{r} -->
+
+<!-- pruebafun <- function(R) { -->
+
+<!--   R.b <- corr.test(R) -->
+
+<!--   diag(R.b$p) <- 1 -->
+
+<!--   R.b$p[upper.tri(R.b$p)] <- R.b$p[lower.tri(R.b$p)] -->
+
+<!--   csa <- R.b$p -->
+
+<!--   csa2 <- R.b$p -->
+
+<!--   csa2[colnames(csa) %in% rownames(modelo@data$metaboloma$group1), -->
+
+<!--        colnames(csa) %in% rownames(modelo@data$ip$group1)] <- -->
+
+<!--     ifelse(csa[colnames(csa) %in% rownames(modelo@data$metaboloma$group1), -->
+
+<!--                colnames(csa) %in% rownames(modelo@data$ip$group1)] < 0.05, "METABOLOMA-PROTEOMA", NA) -->
+
+<!--   csa2[colnames(csa) %in% rownames(modelo@data$metaboloma$group1), -->
+
+<!--        colnames(csa) %in% rownames(modelo@data$metagenoma$group1)] <- -->
+
+<!--     ifelse(csa[colnames(csa) %in% rownames(modelo@data$metaboloma$group1), -->
+
+<!--                colnames(csa) %in% rownames(modelo@data$metagenoma$group1)] < 0.05, "METABOLOMA-METAGENOMA", NA) -->
+
+<!--   csa2[colnames(csa) %in% rownames(modelo@data$metagenoma$group1), -->
+
+<!--        colnames(csa) %in% rownames(modelo@data$ip$group1)] <- -->
+
+<!--     ifelse(csa[colnames(csa) %in% rownames(modelo@data$metagenoma$group1), -->
+
+<!--                colnames(csa) %in% rownames(modelo@data$ip$group1)] < 0.05, "PROTEOMA-METAGENOMA", NA) -->
+
+<!--   csa2[colnames(csa) %in% rownames(modelo@data$metaboloma$group1), -->
+
+<!--        colnames(csa) %in% rownames(modelo@data$metaboloma$group1)] <- -->
+
+<!--     ifelse(csa[colnames(csa) %in% rownames(modelo@data$metaboloma$group1), -->
+
+<!--                colnames(csa) %in% rownames(modelo@data$metaboloma$group1)] < 0.05, "METABOLOMA-METABOLOMA", NA) -->
+
+<!--   csa2[colnames(csa) %in% rownames(modelo@data$metagenoma$group1), -->
+
+<!--        colnames(csa) %in% rownames(modelo@data$metagenoma$group1)] <- -->
+
+<!--     ifelse(csa[colnames(csa) %in% rownames(modelo@data$metagenoma$group1), -->
+
+<!--                colnames(csa) %in% rownames(modelo@data$metagenoma$group1)] < 0.05, "METAGENOMA-METAGENOMA", NA) -->
+
+<!--   csa2[colnames(csa) %in% rownames(modelo@data$ip$group1), -->
+
+<!--        colnames(csa) %in% rownames(modelo@data$ip$group1)] <- -->
+
+<!--     ifelse(csa[colnames(csa) %in% rownames(modelo@data$ip$group1), -->
+
+<!--                colnames(csa) %in% rownames(modelo@data$ip$group1)] < 0.05, "PROTEOMA-PROTEOMA", NA) -->
+
+<!--   csa2[lower.tri(csa2)] <- NA -->
+
+<!--   diag(csa2) <- NA -->
+
+<!--   res <- -->
+
+<!--     data.frame( -->
+
+<!--       metagenoma = length(which(csa2 == "METAGENOMA-METAGENOMA")), -->
+
+<!--       metaboloma = length(which(csa2 == "METABOLOMA-METABOLOMA")), -->
+
+<!--       proteoma = length(which(csa2 == "PROTEOMA-PROTEOMA")), -->
+
+<!--       metagenoma_proteoma = length(which(csa2 == "PROTEOMA-METAGENOMA")), -->
+
+<!--       metagenoma_metaboloma = length(which(csa2 == "METABOLOMA-METAGENOMA")), -->
+
+<!--       proteoma_metaboloma = length(which(csa2 == "METABOLOMA-PROTEOMA")) -->
+
+<!--     ) -->
+
+<!--   return(res) -->
+
+<!-- } -->
+
+<!-- midf <- (list(obesidad=pruebafun(R[obesidad=="Obese",biomarcadores]), -->
+
+<!--                    noObesidad=pruebafun(R[obesidad=="No Obese",biomarcadores]), -->
+
+<!--                    females=pruebafun(R[grupo=="Female",biomarcadores]), -->
+
+<!--                    PCOS=pruebafun(R[grupo=="PCOS",biomarcadores]), -->
+
+<!--                    Male=pruebafun(R[grupo=="Male",biomarcadores]), -->
+
+<!--                    femnoob=pruebafun(R[obesidad=="No Obese" & grupo=="Female",biomarcadores]), -->
+
+<!--                    pcosnoob=pruebafun(R[obesidad=="No Obese" & grupo=="PCOS",biomarcadores]), -->
+
+<!--                    malesnoob=pruebafun(R[obesidad=="No Obese" & grupo=="Male",biomarcadores]), -->
+
+<!--                    femob=pruebafun(R[obesidad=="Obese" & grupo=="Female",biomarcadores]), -->
+
+<!--                    maleob=pruebafun(R[obesidad=="Obese" & grupo=="Male",biomarcadores]), -->
+
+<!--                    pcosob=pruebafun(R[obesidad=="Obese" & grupo=="PCOS",biomarcadores]))) -->
+
+<!-- midf2 <- Reduce("rbind",midf) -->
+
+<!-- rownames(midf2)<- names(midf) -->
+
+<!-- midf2 <- as.data.frame(t(midf2)) -->
+
+<!-- ``` -->
+
+<!-- ```{r} -->
+
+<!-- midf2$sujetos <- rownames(midf2) -->
+
+<!-- ``` -->
+
+<!-- ```{r} -->
+
+<!-- p1<-ggplot(data=midf2, aes(x=sujetos, y=obesidad)) + -->
+
+<!--   geom_bar(stat="identity")+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+coord_flip() -->
+
+<!-- p2<-ggplot(data=midf2, aes(x=sujetos, y=noObesidad)) + -->
+
+<!--   geom_bar(stat="identity")+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+coord_flip() -->
+
+<!-- p3<-ggplot(data=midf2, aes(x=sujetos, y=females)) + -->
+
+<!--   geom_bar(stat="identity")+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+coord_flip() -->
+
+<!-- p4<-ggplot(data=midf2, aes(x=sujetos, y=PCOS)) + -->
+
+<!--   geom_bar(stat="identity")+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+coord_flip() -->
+
+<!-- p5<-ggplot(data=midf2, aes(x=sujetos, y=Male)) + -->
+
+<!--   geom_bar(stat="identity")+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+coord_flip() -->
+
+<!-- p6<-ggplot(data=midf2, aes(x=sujetos, y=femnoob)) + -->
+
+<!--   geom_bar(stat="identity")+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+coord_flip() -->
+
+<!-- p7<-ggplot(data=midf2, aes(x=sujetos, y=femnoob)) + -->
+
+<!--   geom_bar(stat="identity")+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+coord_flip() -->
+
+<!-- p8<-ggplot(data=midf2, aes(x=sujetos, y=pcosnoob)) + -->
+
+<!--   geom_bar(stat="identity")+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+coord_flip() -->
+
+<!-- p9<-ggplot(data=midf2, aes(x=sujetos, y=malesnoob)) + -->
+
+<!--   geom_bar(stat="identity")+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+coord_flip() -->
+
+<!-- p10<-ggplot(data=midf2, aes(x=sujetos, y=pcosob)) + -->
+
+<!--   geom_bar(stat="identity")+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+coord_flip() -->
+
+<!-- p1;p2;p3;p4;p5;p6;p7;p8;p9 -->
+
+<!-- ``` -->
+
+<!-- ## PRUEBA -->
+
+<!-- ```{r} -->
+
+<!-- library(ppcor) -->
+
+<!-- R <- factores %*% t(pesos) -->
+
+<!-- biomarcadores <- c(intersect_mg,intersect(mp,po)) -->
+
+<!-- R3 <- cbind(R[,biomarcadores],covariables) -->
+
+<!-- R3 <- R3[,-grep("edad",ignore.case = T,colnames(R3))] -->
+
+<!-- ``` -->
+
+<!-- ```{r} -->
+
+<!-- partial <- pcor(R3) -->
+
+<!-- ``` -->
+
+<!-- ```{r} -->
+
+<!-- correlation <- cor(R3) -->
+
+<!-- stat <- partial$statistic -->
+
+<!-- estimate <- partial$estimate -->
+
+<!-- pval <- partial$p.value -->
+
+<!-- dimnames(pval) <- dimnames(correlation) -->
+
+<!-- diag(pval) <- 1 -->
+
+<!-- pval[pval>0.05] <- NA -->
+
+<!-- pval.melt <- reshape2::melt(pval) -->
+
+<!-- blacklist <- unique(pval.melt[which(is.na(pval.melt$value)),c(1:2)]) -->
+
+<!-- whiltelist <- unique(pval.melt[which(!is.na(pval.melt$value)),1:2]) -->
+
+<!-- ``` -->
+
+<!-- ```{r} -->
+
+<!-- library(bnlearn) -->
+
+<!-- library(rbmn) -->
+
+<!-- stru <- iamb(R3,test = "cor",whitelist = whiltelist,blacklist = blacklist) -->
+
+<!-- ``` -->
+
+<!-- ```{r} -->
+
+<!-- library(Rgraphviz) -->
+
+<!-- graphviz.plot(stru,fontsize =80) -->
+
+<!-- ``` -->
+
+<!-- ## REGRESIONES LOGISTICAS -->
+
+<!-- ```{r} -->
+
+<!-- library(glmnet) -->
+
+<!-- post <- RR <- factores %*% t(pesos[biomarcadores,]) -->
+
+<!-- pre <- R2 <- as.data.frame(t(Reduce("rbind",list(modelo@data$metaboloma[[1]], -->
+
+<!--                           modelo@data$metagenoma[[1]], -->
+
+<!--                           modelo@data$ip[[1]]))))[,biomarcadores] -->
+
+<!-- set.seed(123456) -->
+
+<!-- idx <- sample(1:nrow(post),size = 0.7*nrow(post)) -->
+
+<!-- post.train <- post[idx,] -->
+
+<!-- grupo.train <- grupo[idx] -->
+
+<!-- post.test <- post[-idx,] -->
+
+<!-- grupo.test <- grupo[-idx] -->
+
+<!-- set.seed(123456) -->
+
+<!-- cv <- glmnet::cv.glmnet(as.matrix(post.train),factor(grupo.train),alpha=1,family="multinomial") -->
+
+<!-- lasso1.post.grupo <- glmnet::glmnet(x = post.train,y = grupo.train ,alpha=1,family="multinomial",lambda = cv$lambda.min) -->
+
+<!-- res <- as.factor(predict(lasso1.post.grupo,newx=post.test,s="lambda.min",type="class")) -->
+
+<!-- caret::confusionMatrix(res,grupo.test) -->
+
+<!-- coef(lasso1.post.grupo) -->
+
+<!-- ``` -->
+
+<!-- ```{r} -->
+
+<!-- post <- RR <- factores %*% t(pesos[biomarcadores,]) -->
+
+<!-- pre <- R2 <- as.data.frame(t(Reduce("rbind",list(modelo@data$metaboloma[[1]], -->
+
+<!--                           modelo@data$metagenoma[[1]], -->
+
+<!--                           modelo@data$ip[[1]]))))[,biomarcadores] -->
+
+<!-- set.seed(123456) -->
+
+<!-- idx <- sample(1:nrow(pre),size = 0.7*nrow(pre)) -->
+
+<!-- pre.train <- pre[idx,] -->
+
+<!-- grupo.train <- grupo[idx] -->
+
+<!-- pre.test <- pre[-idx,] -->
+
+<!-- grupo.test <- grupo[-idx] -->
+
+<!-- set.seed(123456) -->
+
+<!-- cv <- glmnet::cv.glmnet(as.matrix(pre.train),factor(grupo.train),alpha=1,family="multinomial") -->
+
+<!-- lasso1.pre.grupo <- glmnet::glmnet(x = pre.train,y = grupo.train ,alpha=1,family="multinomial",lambda = cv$lambda.min) -->
+
+<!-- res <- as.factor(predict(lasso1.pre.grupo,newx=as.matrix(pre.test),s="lambda.min",type="class")) -->
+
+<!-- caret::confusionMatrix(res,grupo.test) -->
+
+<!-- coef(lasso1.pre.grupo) -->
+
+<!-- ``` -->
+
+<!-- ## REGRESIONES LOGISTICAS OBESIDAD -->
+
+<!-- ```{r} -->
+
+<!-- library(glmnet) -->
+
+<!-- post <- RR <- factores %*% t(pesos[biomarcadores,]) -->
+
+<!-- pre <- R2 <- as.data.frame(t(Reduce("rbind",list(modelo@data$metaboloma[[1]], -->
+
+<!--                           modelo@data$metagenoma[[1]], -->
+
+<!--                           modelo@data$ip[[1]]))))[,biomarcadores] -->
+
+<!-- set.seed(123456) -->
+
+<!-- idx <- sample(1:nrow(post),size = 0.7*nrow(post)) -->
+
+<!-- post.train <- post[idx,] -->
+
+<!-- grupo.train <- obesidad[idx] -->
+
+<!-- post.test <- post[-idx,] -->
+
+<!-- grupo.test <- obesidad[-idx] -->
+
+<!-- set.seed(123456) -->
+
+<!-- cv <- glmnet::cv.glmnet(as.matrix(post.train),factor(grupo.train),alpha=1,family="binomial") -->
+
+<!-- lasso1.post.obesidad <- glmnet::glmnet(x = post.train,y = grupo.train ,alpha=1,family="binomial",lambda = cv$lambda.min) -->
+
+<!-- res <- as.factor(predict(lasso1.post.obesidad,newx=post.test,s="lambda.min",type="class")) -->
+
+<!-- caret::confusionMatrix(res,grupo.test) -->
+
+<!-- coef(lasso1.post.obesidad) -->
+
+<!-- ``` -->
+
+<!-- ```{r} -->
+
+<!-- post <- RR <- factores %*% t(pesos[biomarcadores,]) -->
+
+<!-- pre <- R2 <- as.data.frame(t(Reduce("rbind",list(modelo@data$metaboloma[[1]], -->
+
+<!--                           modelo@data$metagenoma[[1]], -->
+
+<!--                           modelo@data$ip[[1]]))))[,biomarcadores] -->
+
+<!-- set.seed(123456) -->
+
+<!-- idx <- sample(1:nrow(pre),size = 0.7*nrow(pre)) -->
+
+<!-- pre.train <- pre[idx,] -->
+
+<!-- grupo.train <- grupo[idx] -->
+
+<!-- pre.test <- pre[-idx,] -->
+
+<!-- grupo.test <- grupo[-idx] -->
+
+<!-- set.seed(123456) -->
+
+<!-- cv <- glmnet::cv.glmnet(as.matrix(pre.train),factor(grupo.train),alpha=1,family="multinomial") -->
+
+<!-- lasso1.pre.obesidad <- glmnet::glmnet(x = pre.train,y = grupo.train ,alpha=1,family="multinomial",lambda = cv$lambda.min) -->
+
+<!-- res <- as.factor(predict(lasso1.pre.obesidad,newx=as.matrix(pre.test),s="lambda.min",type="class")) -->
+
+<!-- caret::confusionMatrix(res,grupo.test) -->
+
+<!-- coef(lasso1.pre.obesidad) -->
+
+<!-- ``` -->
+
+<!-- ### EXTRAEMOS VARIABLES PRE Y POST DE GRUPO Y OBESIDAD -->
+
+<!-- PERO PRIMERO DEBEMOS DE ASEGURARNOS QUE SUCEDE -->
+
+<!-- TENEMOS QUE ESPECIFICAR EL MODELO Y LOS DATOS PRE O POST? -->
+
+<!-- <!-- ```{r} -->
+
+--\> <!-- <!-- # modelos <- lapply(list.files("./modelos_final/",full.names = T), load_model) --> --\> <!-- <!-- # modelo <- MOFA2::select_model(modelos,plot=T) --> --\>
+
+<!-- <!-- fun_question <-  function(semilla) { -->
+
+--\> <!-- <!--   pesos <- Reduce(rbind, get_weights(modelo, scale = T)) --> --\>
+
+<!-- <!--   factores <- get_factors(modelo,scale = T)[[1]] -->
+
+--\> <!-- <!--   post <- scale(factores %*% t(pesos[biomarcadores, ])) --> --\> <!-- <!--   pre <- --> --\> <!-- <!--     scale(as.data.frame(t(Reduce( --> --\> <!-- <!--       "rbind", --> --\> <!-- <!--       list( --> --\> <!-- <!--         modelo@data$metaboloma[[1]], --> --\> <!-- <!--         modelo@data$metagenoma[[1]], --> --\> <!-- <!--         modelo@data$ip[[1]] --> --\> <!-- <!--       ) --> --\> <!-- <!--     )))[, biomarcadores]) --> --\>
+
+<!-- <!--   noise <- scale(pre-post) -->
+
+--\> <!-- <!--   set.seed(semilla) --> --\> <!-- <!--   idx <- sample(1:nrow(pre), size = 0.7 * nrow(pre)) --> --\> <!-- <!--   pre.train <- pre[idx, ] --> --\> <!-- <!--   grupo.train <- grupo[idx] --> --\> <!-- <!--   pre.test <- pre[-idx, ] --> --\> <!-- <!--   grupo.test <- grupo[-idx] --> --\> <!-- <!--   set.seed(semilla) --> --\> <!-- <!--   noise.train <- noise[idx,] --> --\> <!-- <!--   noise.test <- noise[-idx,] --> --\> <!-- <!--   cv <- --> --\> <!-- <!--     glmnet::cv.glmnet(as.matrix(pre.train), --> --\> <!-- <!--                       factor(grupo.train), --> --\> <!-- <!--                       alpha = 1, --> --\> <!-- <!--                       family = "multinomial") --> --\>
+
+<!-- <!--   lasso1.pre.grupo <- -->
+
+--\> <!-- <!--     glmnet::glmnet( --> --\> <!-- <!--       x = pre.train, --> --\> <!-- <!--       y = grupo.train , --> --\> <!-- <!--       alpha = 1, --> --\> <!-- <!--       family = "multinomial", --> --\> <!-- <!--       lambda = cv$lambda.min --> --\> <!-- <!--     ) --> --\>
+
+<!-- <!--   res <- -->
+
+--\> <!-- <!--     factor(predict( --> --\> <!-- <!--       lasso1.pre.grupo, --> --\> <!-- <!--       newx = as.matrix(pre.test), --> --\> <!-- <!--       s = "lambda.min", --> --\> <!-- <!--       type = "class" --> --\> <!-- <!--     ),levels = levels(grupo.test)) --> --\>
+
+<!-- <!--   acc.grupo.pre <- caret::confusionMatrix(res, grupo.test)$overall[1] -->
+
+--\> <!-- <!--   coeficientes_lasso.pre.grupo <- as.matrix(Reduce("cbind",coef(lasso1.pre.grupo))) --> --\> <!-- <!--   rownames(coeficientes_lasso.pre.grupo)[1] <- "intercept" --> --\> <!-- <!--   colnames(coeficientes_lasso.pre.grupo) <- levels(grupo) --> --\>
+
+<!-- <!--   grupo.train <- grupo[idx] -->
+
+--\> <!-- <!--   grupo.test <- grupo[-idx] --> --\> <!-- <!--   set.seed(semilla) --> --\> <!-- <!--   cv <- --> --\> <!-- <!--     glmnet::cv.glmnet(as.matrix(post.train), --> --\> <!-- <!--                       factor(grupo.train), --> --\> <!-- <!--                       alpha = 1, --> --\> <!-- <!--                       family = "multinomial") --> --\>
+
+<!-- <!--   lasso1.post.grupo <- -->
+
+--\> <!-- <!--     glmnet::glmnet( --> --\> <!-- <!--       x = post.train, --> --\> <!-- <!--       y = grupo.train , --> --\> <!-- <!--       alpha = 1, --> --\> <!-- <!--       family = "multinomial", --> --\> <!-- <!--       lambda = cv$lambda.min --> --\> <!-- <!--     ) --> --\>
+
+<!-- <!--   res <- -->
+
+--\> <!-- <!--     factor(predict( --> --\> <!-- <!--       lasso1.post.grupo, --> --\> <!-- <!--       newx = as.matrix(post.test), --> --\> <!-- <!--       s = "lambda.min", --> --\> <!-- <!--       type = "class" --> --\> <!-- <!--     ),levels = levels(grupo.test)) --> --\>
+
+<!-- <!--   acc.grupo.post <- caret::confusionMatrix(res, grupo.test)$overall[1] -->
+
+--\>
+
+<!-- <!--   coeficientes_lasso1.post.grupo <- as.matrix(Reduce("cbind",coef(lasso1.post.grupo))) -->
+
+--\> <!-- <!--   rownames(coeficientes_lasso1.post.grupo)[1] <- "intercept" --> --\> <!-- <!--   colnames(coeficientes_lasso1.post.grupo) <- levels(grupo) --> --\> <!-- <!--   #### --> --\> <!-- <!--   grupo.train <- obesidad[idx] --> --\> <!-- <!--   grupo.test <- obesidad[-idx] --> --\> <!-- <!--     cv <- --> --\> <!-- <!--     glmnet::cv.glmnet(as.matrix(pre.train), --> --\> <!-- <!--                       factor(grupo.train), --> --\> <!-- <!--                       alpha = 1, --> --\> <!-- <!--                       family = "binomial") --> --\>
+
+<!-- <!--   lasso1.pre.obesidad <- -->
+
+--\> <!-- <!--     glmnet::glmnet( --> --\> <!-- <!--       x = pre.train, --> --\> <!-- <!--       y = grupo.train , --> --\> <!-- <!--       alpha = 1, --> --\> <!-- <!--       family = "binomial", --> --\> <!-- <!--       lambda = cv$lambda.min --> --\> <!-- <!--     ) --> --\>
+
+<!-- <!--   res <- -->
+
+--\> <!-- <!--     factor(predict( --> --\> <!-- <!--       lasso1.pre.obesidad, --> --\> <!-- <!--       newx = as.matrix(pre.test), --> --\> <!-- <!--       s = "lambda.min", --> --\> <!-- <!--       type = "class" --> --\> <!-- <!--     ),levels = levels(grupo.test)) --> --\>
+
+<!-- <!--   acc.obesidad.pre <- caret::confusionMatrix(res, grupo.test)$overall[1] -->
+
+--\>
+
+<!-- <!--   coeficientes_lasso1.pre.obesidad <- as.matrix(coef(lasso1.pre.obesidad)) -->
+
+--\> <!-- <!--   rownames(coeficientes_lasso1.pre.obesidad)[1] <- "intercept" --> --\> <!-- <!--   colnames(coeficientes_lasso1.pre.obesidad) <- "NOvsO" --> --\>
+
+<!-- <!--   set.seed(semilla) -->
+
+--\> <!-- <!--   cv <- --> --\> <!-- <!--     glmnet::cv.glmnet(as.matrix(post.train), --> --\> <!-- <!--                       factor(grupo.train), --> --\> <!-- <!--                       alpha = 1, --> --\> <!-- <!--                       family = "binomial") --> --\>
+
+<!-- <!--   lasso1.post.obesidad <- -->
+
+--\> <!-- <!--     glmnet::glmnet( --> --\> <!-- <!--       x = post.train, --> --\> <!-- <!--       y = grupo.train , --> --\> <!-- <!--       alpha = 1, --> --\> <!-- <!--       family = "binomial", --> --\> <!-- <!--       lambda = cv$lambda.min --> --\> <!-- <!--     ) --> --\>
+
+<!-- <!--   res <- -->
+
+--\> <!-- <!--     factor(predict( --> --\> <!-- <!--       lasso1.post.obesidad, --> --\> <!-- <!--       newx = as.matrix(post.test), --> --\> <!-- <!--       s = "lambda.min", --> --\> <!-- <!--       type = "class" --> --\> <!-- <!--     ),levels = levels(grupo.test)) --> --\>
+
+<!-- <!--   acc.obesidad.post <- caret::confusionMatrix(res, grupo.test)$overall[1] -->
+
+--\>
+
+<!-- <!--   coeficientes_lasso1.post.obesidad <- as.matrix(coef(lasso1.post.obesidad)) -->
+
+--\> <!-- <!--   rownames(coeficientes_lasso1.post.obesidad)[1] <- "intercept" --> --\> <!-- <!--   colnames(coeficientes_lasso1.post.obesidad) <- "NOvsO" --> --\>
+
+<!-- <!--   ### noise -->
+
+--\>
+
+<!-- <!--     lasso1.noise.obesidad <- -->
+
+--\> <!-- <!--     glmnet::glmnet( --> --\> <!-- <!--       x = noise.train, --> --\> <!-- <!--       y = grupo.train , --> --\> <!-- <!--       alpha = 1, --> --\> <!-- <!--       family = "binomial", --> --\> <!-- <!--       lambda = cv$lambda.min --> --\> <!-- <!--     ) --> --\>
+
+<!-- <!--   res <- -->
+
+--\> <!-- <!--     factor(predict( --> --\> <!-- <!--       lasso1.noise.obesidad, --> --\> <!-- <!--       newx = as.matrix(noise.test), --> --\> <!-- <!--       s = "lambda.min", --> --\> <!-- <!--       type = "class" --> --\> <!-- <!--     ),levels = levels(grupo.test)) --> --\>
+
+<!-- <!--   acc.obesidad.noise <- caret::confusionMatrix(res, grupo.test)$overall[1] -->
+
+--\>
+
+<!-- <!--   coeficientes_lasso1.noise.obesidad<- as.matrix(coef(lasso1.noise.obesidad)) -->
+
+--\> <!-- <!--   rownames(coeficientes_lasso1.noise.obesidad)[1] <- "intercept" --> --\> <!-- <!--   colnames(coeficientes_lasso1.noise.obesidad) <- "NOvsO" --> --\>
+
+<!-- <!--   grupo.train <- grupo[idx] -->
+
+--\> <!-- <!--   grupo.test <- grupo[-idx] --> --\> <!-- <!-- lasso1.noise.grupo <- --> --\> <!-- <!--     glmnet::glmnet( --> --\> <!-- <!--       x = noise.train, --> --\> <!-- <!--       y = grupo.train , --> --\> <!-- <!--       alpha = 1, --> --\> <!-- <!--       family = "multinomial", --> --\> <!-- <!--       lambda = cv$lambda.min --> --\> <!-- <!--     ) --> --\>
+
+<!-- <!--   res <- -->
+
+--\> <!-- <!--     factor(predict( --> --\> <!-- <!--       lasso1.noise.grupo, --> --\> <!-- <!--       newx = as.matrix(noise.test), --> --\> <!-- <!--       s = "lambda.min", --> --\> <!-- <!--       type = "class" --> --\> <!-- <!--     ),levels = levels(grupo.test)) --> --\>
+
+<!-- <!--   acc.grupo.noise <- caret::confusionMatrix(res, grupo.test)$overall[1] -->
+
+--\>
+
+<!-- <!--   coeficientes_lasso1.noise.grupo <- as.matrix(Reduce("cbind",coef(lasso1.noise.grupo))) -->
+
+--\> <!-- <!--   rownames(coeficientes_lasso1.noise.grupo)[1] <- "intercept" --> --\> <!-- <!--   colnames(coeficientes_lasso1.noise.grupo) <- levels(grupo) --> --\>
+
+<!-- <!--   accuracies<- c(grupo_pre=acc.grupo.pre, -->
+
+--\> <!-- <!--            grupo_post = acc.grupo.post, --> --\> <!-- <!--            obesidad_pre = acc.obesidad.pre, --> --\> <!-- <!--            obesidad_post = acc.obesidad.post, --> --\> <!-- <!--            grupo_noise = acc.grupo.noise, --> --\> <!-- <!--            obesidad_noise = acc.obesidad.noise) --> --\>
+
+<!-- <!--   coeficientes <- list(precoef_grupo = coeficientes_lasso.pre.grupo, -->
+
+--\> <!-- <!--                        precoef_obesidad = coeficientes_lasso1.pre.obesidad, --> --\> <!-- <!--                        postcoef_grupo = coeficientes_lasso1.post.grupo, --> --\> <!-- <!--                        postcoef_obesodad = coeficientes_lasso1.post.obesidad, --> --\> <!-- <!--                        noisecoef_grupo = coeficientes_lasso1.noise.grupo, --> --\> <!-- <!--                        noisecoef_obesidad = coeficientes_lasso1.noise.obesidad) --> --\>
+
+<!-- <!--   return_list <- list(acc = accuracies, -->
+
+--\> <!-- <!--                       coeficientes=coeficientes) --> --\>
+
+<!-- <!--   return(return_list) -->
+
+--\> <!-- <!-- } --> --\>
+
+<!-- <!-- ``` -->
+
+--\>
+
+<!-- <!-- ```{r} -->
+
+--\> <!-- <!-- semillas <- sample.int(10000,size = 100) --> --\> <!-- <!-- retorno <- lapply(semillas, fun_question) --> --\> <!-- <!-- ``` --> --\>
+
+<!-- <!-- ```{r} -->
+
+--\> <!-- <!-- (accs <- colMeans(Reduce("rbind",(lapply(retorno,function(x) x[[1]]))))) --> --\> <!-- <!-- ``` --> --\>
+
+<!-- <!-- COEFICIENTES MEDIOS GRUPO PRE -->
+
+--\>
+
+<!-- <!-- ```{r} -->
+
+--\> <!-- <!-- coefs_grupo_pre.list <- vector("list",length=3) --> --\> <!-- <!-- for(i in 1:3){ --> --\> <!-- <!--   coefs_grupo_pre.list[[i]] <- rowMeans(Reduce("cbind",lapply(retorno, function(x) x[[2]]$precoef_grupo[,i]))) --> --\> <!-- <!-- } --> --\> <!-- <!-- names(coefs_grupo_pre.list) <- levels(grupo) --> --\> <!-- <!-- coefs_grupo_pre <- as.data.frame(coefs_grupo_pre.list) --> --\> <!-- <!-- round(coefs_grupo_pre,2) --> --\> <!-- <!-- ``` --> --\>
+
+<!-- <!-- ```{r} -->
+
+--\> <!-- <!-- coefs_grupo_pre.list <- vector("list",length=3) --> --\> <!-- <!-- for(i in 1:3){ --> --\> <!-- <!--   coefs_grupo_pre.list[[i]] <- rowMeans(Reduce("cbind",lapply(retorno, function(x) x[[2]]$postcoef_grupo[,i]))) --> --\> <!-- <!-- } --> --\> <!-- <!-- names(coefs_grupo_pre.list) <- levels(grupo) --> --\> <!-- <!-- coefs_grupo_pre <- as.data.frame(coefs_grupo_pre.list) --> --\> <!-- <!-- round(coefs_grupo_pre,2) --> --\> <!-- <!-- ``` --> --\>
+
+<!-- <!-- ```{r} -->
+
+--\> <!-- <!-- coefs_grupo_pre.list <- vector("list",length=3) --> --\> <!-- <!-- for(i in 1:3){ --> --\> <!-- <!--   coefs_grupo_pre.list[[i]] <- rowMeans(Reduce("cbind",lapply(retorno, function(x) x[[2]]$noisecoef_grupo[,i]))) --> --\> <!-- <!-- } --> --\> <!-- <!-- names(coefs_grupo_pre.list) <- levels(grupo) --> --\> <!-- <!-- coefs_grupo_pre <- as.data.frame(coefs_grupo_pre.list) --> --\> <!-- <!-- coefs_grupo_pre --> --\> <!-- <!-- ``` --> --\>
+
+<!-- <!-- ```{r} -->
+
+--\> <!-- <!--   pesos <- Reduce(rbind, get_weights(modelo, scale = F)) --> --\>
+
+<!-- <!--   factores <- get_factors(modelo,scale = F)[[1]] -->
+
+--\> <!-- <!--   post <- (factores %*% t(pesos)) --> --\>
+
+<!-- <!--   funcion_pca((post),F,F) -->
+
+--\> <!-- <!-- ``` --> --\>
+
+<!-- <!-- ```{r} -->
+
+--\> <!-- <!-- postb <- post[,biomarcadores] --> --\> <!-- <!-- pcx <- prcomp(t(postb)) --> --\> <!-- <!-- rot <- pcx$x --> --\>
+
+<!-- <!-- csa <- t(corr.test(t(rot),t(postb))$r) -->
+
+--\> <!-- <!-- csap <-  t(corr.test(t(rot),t(postb))$p) --> --\> <!-- <!-- csa <- as.data.frame(csa) --> --\>
+
+<!-- <!-- csap -->
+
+--\>
+
+<!-- <!-- ``` -->
+
+--\>
+
+<!-- <!-- ------------------------------------------------------------------------ -->
+
+--\>
+
+<!-- <!-- FEATURE SELECTION WITH ALL VARIABLES -->
+
+--\>
+
+<!-- <!-- ```{r} -->
+
+--\> <!-- <!-- fun_question_all <-  function(semilla) { --> --\> <!-- <!--   pesos <- Reduce(rbind, get_weights(modelo, scale = T)) --> --\>
+
+<!-- <!--   factores <- get_factors(modelo,scale = T)[[1]] -->
+
+--\> <!-- <!--   post <- scale(factores %*% t(pesos)) --> --\> <!-- <!--   pre <- --> --\> <!-- <!--     scale(as.data.frame(t(Reduce( --> --\> <!-- <!--       "rbind", --> --\> <!-- <!--       list( --> --\> <!-- <!--         modelo@data$metaboloma[[1]], --> --\> <!-- <!--         modelo@data$metagenoma[[1]], --> --\> <!-- <!--         modelo@data$ip[[1]] --> --\> <!-- <!--       ) --> --\> <!-- <!--     )))) --> --\>
+
+<!-- <!--   noise <- scale(pre-post) -->
+
+--\> <!-- <!--   set.seed(semilla) --> --\> <!-- <!--   idx <- sample(1:nrow(pre), size = 0.7 * nrow(pre)) --> --\> <!-- <!--   pre.train <- pre[idx, ] --> --\> <!-- <!--   grupo.train <- grupo[idx] --> --\> <!-- <!--   pre.test <- pre[-idx, ] --> --\> <!-- <!--   grupo.test <- grupo[-idx] --> --\> <!-- <!--   set.seed(semilla) --> --\> <!-- <!--   noise.train <- noise[idx,] --> --\> <!-- <!--   noise.test <- noise[-idx,] --> --\> <!-- <!--   cv <- --> --\> <!-- <!--     glmnet::cv.glmnet(as.matrix(pre.train), --> --\> <!-- <!--                       factor(grupo.train), --> --\> <!-- <!--                       alpha = 1, --> --\> <!-- <!--                       family = "multinomial") --> --\>
+
+<!-- <!--   lasso1.pre.grupo <- -->
+
+--\> <!-- <!--     glmnet::glmnet( --> --\> <!-- <!--       x = pre.train, --> --\> <!-- <!--       y = grupo.train , --> --\> <!-- <!--       alpha = 1, --> --\> <!-- <!--       family = "multinomial", --> --\> <!-- <!--       lambda = cv$lambda.min --> --\> <!-- <!--     ) --> --\>
+
+<!-- <!--   res <- -->
+
+--\> <!-- <!--     factor(predict( --> --\> <!-- <!--       lasso1.pre.grupo, --> --\> <!-- <!--       newx = as.matrix(pre.test), --> --\> <!-- <!--       s = "lambda.min", --> --\> <!-- <!--       type = "class" --> --\> <!-- <!--     ),levels = levels(grupo.test)) --> --\>
+
+<!-- <!--   acc.grupo.pre <- caret::confusionMatrix(res, grupo.test)$overall[1] -->
+
+--\> <!-- <!--   coeficientes_lasso.pre.grupo <- as.matrix(Reduce("cbind",coef(lasso1.pre.grupo))) --> --\> <!-- <!--   rownames(coeficientes_lasso.pre.grupo)[1] <- "intercept" --> --\> <!-- <!--   colnames(coeficientes_lasso.pre.grupo) <- levels(grupo) --> --\>
+
+<!-- <!--   grupo.train <- grupo[idx] -->
+
+--\> <!-- <!--   grupo.test <- grupo[-idx] --> --\> <!-- <!--   set.seed(semilla) --> --\> <!-- <!--   cv <- --> --\> <!-- <!--     glmnet::cv.glmnet(as.matrix(post.train), --> --\> <!-- <!--                       factor(grupo.train), --> --\> <!-- <!--                       alpha = 1, --> --\> <!-- <!--                       family = "multinomial") --> --\>
+
+<!-- <!--   lasso1.post.grupo <- -->
+
+--\> <!-- <!--     glmnet::glmnet( --> --\> <!-- <!--       x = post.train, --> --\> <!-- <!--       y = grupo.train , --> --\> <!-- <!--       alpha = 1, --> --\> <!-- <!--       family = "multinomial", --> --\> <!-- <!--       lambda = cv$lambda.min --> --\> <!-- <!--     ) --> --\>
+
+<!-- <!--   res <- -->
+
+--\> <!-- <!--     factor(predict( --> --\> <!-- <!--       lasso1.post.grupo, --> --\> <!-- <!--       newx = as.matrix(post.test), --> --\> <!-- <!--       s = "lambda.min", --> --\> <!-- <!--       type = "class" --> --\> <!-- <!--     ),levels = levels(grupo.test)) --> --\>
+
+<!-- <!--   acc.grupo.post <- caret::confusionMatrix(res, grupo.test)$overall[1] -->
+
+--\>
+
+<!-- <!--   coeficientes_lasso1.post.grupo <- as.matrix(Reduce("cbind",coef(lasso1.post.grupo))) -->
+
+--\> <!-- <!--   rownames(coeficientes_lasso1.post.grupo)[1] <- "intercept" --> --\> <!-- <!--   colnames(coeficientes_lasso1.post.grupo) <- levels(grupo) --> --\> <!-- <!--   #### --> --\> <!-- <!--   grupo.train <- obesidad[idx] --> --\> <!-- <!--   grupo.test <- obesidad[-idx] --> --\> <!-- <!--     cv <- --> --\> <!-- <!--     glmnet::cv.glmnet(as.matrix(pre.train), --> --\> <!-- <!--                       factor(grupo.train), --> --\> <!-- <!--                       alpha = 1, --> --\> <!-- <!--                       family = "binomial") --> --\>
+
+<!-- <!--   lasso1.pre.obesidad <- -->
+
+--\> <!-- <!--     glmnet::glmnet( --> --\> <!-- <!--       x = pre.train, --> --\> <!-- <!--       y = grupo.train , --> --\> <!-- <!--       alpha = 1, --> --\> <!-- <!--       family = "binomial", --> --\> <!-- <!--       lambda = cv$lambda.min --> --\> <!-- <!--     ) --> --\>
+
+<!-- <!--   res <- -->
+
+--\> <!-- <!--     factor(predict( --> --\> <!-- <!--       lasso1.pre.obesidad, --> --\> <!-- <!--       newx = as.matrix(pre.test), --> --\> <!-- <!--       s = "lambda.min", --> --\> <!-- <!--       type = "class" --> --\> <!-- <!--     ),levels = levels(grupo.test)) --> --\>
+
+<!-- <!--   acc.obesidad.pre <- caret::confusionMatrix(res, grupo.test)$overall[1] -->
+
+--\>
+
+<!-- <!--   coeficientes_lasso1.pre.obesidad <- as.matrix(coef(lasso1.pre.obesidad)) -->
+
+--\> <!-- <!--   rownames(coeficientes_lasso1.pre.obesidad)[1] <- "intercept" --> --\> <!-- <!--   colnames(coeficientes_lasso1.pre.obesidad) <- "NOvsO" --> --\>
+
+<!-- <!--   set.seed(semilla) -->
+
+--\> <!-- <!--   cv <- --> --\> <!-- <!--     glmnet::cv.glmnet(as.matrix(post.train), --> --\> <!-- <!--                       factor(grupo.train), --> --\> <!-- <!--                       alpha = 1, --> --\> <!-- <!--                       family = "binomial") --> --\>
+
+<!-- <!--   lasso1.post.obesidad <- -->
+
+--\> <!-- <!--     glmnet::glmnet( --> --\> <!-- <!--       x = post.train, --> --\> <!-- <!--       y = grupo.train , --> --\> <!-- <!--       alpha = 1, --> --\> <!-- <!--       family = "binomial", --> --\> <!-- <!--       lambda = cv$lambda.min --> --\> <!-- <!--     ) --> --\>
+
+<!-- <!--   res <- -->
+
+--\> <!-- <!--     factor(predict( --> --\> <!-- <!--       lasso1.post.obesidad, --> --\> <!-- <!--       newx = as.matrix(post.test), --> --\> <!-- <!--       s = "lambda.min", --> --\> <!-- <!--       type = "class" --> --\> <!-- <!--     ),levels = levels(grupo.test)) --> --\>
+
+<!-- <!--   acc.obesidad.post <- caret::confusionMatrix(res, grupo.test)$overall[1] -->
+
+--\>
+
+<!-- <!--   coeficientes_lasso1.post.obesidad <- as.matrix(coef(lasso1.post.obesidad)) -->
+
+--\> <!-- <!--   rownames(coeficientes_lasso1.post.obesidad)[1] <- "intercept" --> --\> <!-- <!--   colnames(coeficientes_lasso1.post.obesidad) <- "NOvsO" --> --\>
+
+<!-- <!--   ### noise -->
+
+--\>
+
+<!-- <!--     lasso1.noise.obesidad <- -->
+
+--\> <!-- <!--     glmnet::glmnet( --> --\> <!-- <!--       x = noise.train, --> --\> <!-- <!--       y = grupo.train , --> --\> <!-- <!--       alpha = 1, --> --\> <!-- <!--       family = "binomial", --> --\> <!-- <!--       lambda = cv$lambda.min --> --\> <!-- <!--     ) --> --\>
+
+<!-- <!--   res <- -->
+
+--\> <!-- <!--     factor(predict( --> --\> <!-- <!--       lasso1.noise.obesidad, --> --\> <!-- <!--       newx = as.matrix(noise.test), --> --\> <!-- <!--       s = "lambda.min", --> --\> <!-- <!--       type = "class" --> --\> <!-- <!--     ),levels = levels(grupo.test)) --> --\>
+
+<!-- <!--   acc.obesidad.noise <- caret::confusionMatrix(res, grupo.test)$overall[1] -->
+
+--\>
+
+<!-- <!--   coeficientes_lasso1.noise.obesidad<- as.matrix(coef(lasso1.noise.obesidad)) -->
+
+--\> <!-- <!--   rownames(coeficientes_lasso1.noise.obesidad)[1] <- "intercept" --> --\> <!-- <!--   colnames(coeficientes_lasso1.noise.obesidad) <- "NOvsO" --> --\>
+
+<!-- <!--   grupo.train <- grupo[idx] -->
+
+--\> <!-- <!--   grupo.test <- grupo[-idx] --> --\> <!-- <!-- lasso1.noise.grupo <- --> --\> <!-- <!--     glmnet::glmnet( --> --\> <!-- <!--       x = noise.train, --> --\> <!-- <!--       y = grupo.train , --> --\> <!-- <!--       alpha = 1, --> --\> <!-- <!--       family = "multinomial", --> --\> <!-- <!--       lambda = cv$lambda.min --> --\> <!-- <!--     ) --> --\>
+
+<!-- <!--   res <- -->
+
+--\> <!-- <!--     factor(predict( --> --\> <!-- <!--       lasso1.noise.grupo, --> --\> <!-- <!--       newx = as.matrix(noise.test), --> --\> <!-- <!--       s = "lambda.min", --> --\> <!-- <!--       type = "class" --> --\> <!-- <!--     ),levels = levels(grupo.test)) --> --\>
+
+<!-- <!--   acc.grupo.noise <- caret::confusionMatrix(res, grupo.test)$overall[1] -->
+
+--\>
+
+<!-- <!--   coeficientes_lasso1.noise.grupo <- as.matrix(Reduce("cbind",coef(lasso1.noise.grupo))) -->
+
+--\> <!-- <!--   rownames(coeficientes_lasso1.noise.grupo)[1] <- "intercept" --> --\> <!-- <!--   colnames(coeficientes_lasso1.noise.grupo) <- levels(grupo) --> --\>
+
+<!-- <!--   accuracies<- c(grupo_pre=acc.grupo.pre, -->
+
+--\> <!-- <!--            grupo_post = acc.grupo.post, --> --\> <!-- <!--            obesidad_pre = acc.obesidad.pre, --> --\> <!-- <!--            obesidad_post = acc.obesidad.post, --> --\> <!-- <!--            grupo_noise = acc.grupo.noise, --> --\> <!-- <!--            obesidad_noise = acc.obesidad.noise) --> --\>
+
+<!-- <!--   coeficientes <- list(precoef_grupo = coeficientes_lasso.pre.grupo, -->
+
+--\> <!-- <!--                        precoef_obesidad = coeficientes_lasso1.pre.obesidad, --> --\> <!-- <!--                        postcoef_grupo = coeficientes_lasso1.post.grupo, --> --\> <!-- <!--                        postcoef_obesodad = coeficientes_lasso1.post.obesidad, --> --\> <!-- <!--                        noisecoef_grupo = coeficientes_lasso1.noise.grupo, --> --\> <!-- <!--                        noisecoef_obesidad = coeficientes_lasso1.noise.obesidad) --> --\>
+
+<!-- <!--   return_list <- list(acc = accuracies, -->
+
+--\> <!-- <!--                       coeficientes=coeficientes) --> --\>
+
+<!-- <!--   return(return_list) -->
+
+--\> <!-- <!-- } --> --\>
+
+<!-- <!-- ``` -->
+
+--\>
+
+<!-- <!-- ```{r} -->
+
+--\> <!-- <!-- semillas <- sample.int(10000,size = 100) --> --\> <!-- <!-- retorno <- lapply(semillas, fun_question_all) --> --\> <!-- <!-- (accs <- colMeans(Reduce("rbind",(lapply(retorno,function(x) x[[1]]))))) --> --\>
+
+<!-- <!-- ``` -->
+
+--\>
+
+<!-- <!-- ```{r} -->
+
+--\> <!-- <!-- coeficientes <- lapply(retorno, function(x) x[[2]]) --> --\>
+
+<!-- <!-- coef_first_seed <- coeficientes[[1]]$precoef_grupo -->
+
+--\> <!-- <!-- ``` --> --\>
