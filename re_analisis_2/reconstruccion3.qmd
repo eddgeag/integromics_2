@@ -1523,39 +1523,39 @@ logi_obf <-which((obesidad=="Obese") & (grupo=="Female"))
 logi_obm <-which((obesidad=="Obese") & (grupo=="Male"))
 logi_obp <-which((obesidad=="Obese") & (grupo=="PCOS"))
 
-p1 <- funcion_corr_2(logi = logi_noob,gof=" No Obese subjects")
+p1 <- funcion_corr_2(logi = logi_noob,gof="\nNo Obese subjects")
 ggsave(filename=file.path(directorio_bivariante_factores_cov,"corr_factors_cov_noob.jpeg"),plot = p1)
-p1 <- funcion_corr_2(logi = logi_ob,gof=" Obese subjects")
+p1 <- funcion_corr_2(logi = logi_ob,gof="\n Obese subjects")
 ggsave(filename=file.path(directorio_bivariante_factores_cov,"corr_factors_cov_ob.jpeg"),plot = p1)
 
-p1 <- funcion_corr_2(logi = logi_f,gof=" Female subjects")
+p1 <- funcion_corr_2(logi = logi_f,gof="\n Female subjects")
 ggsave(filename=file.path(directorio_bivariante_factores_cov,"corr_factors_cov_f.jpeg"),plot = p1)
 
-p1 <- funcion_corr_2(logi = logi_m,gof=" Male subjects")
+p1 <- funcion_corr_2(logi = logi_m,gof=" \nMale subjects")
 ggsave(filename=file.path(directorio_bivariante_factores_cov,"corr_factors_cov_m.jpeg"),plot = p1)
 
-p1 <- funcion_corr_2(logi = logi_p,gof=" PCOS subjects")
+p1 <- funcion_corr_2(logi = logi_p,gof=" \nPCOS subjects")
 ggsave(filename=file.path(directorio_bivariante_factores_cov,"corr_factors_cov_p.jpeg"),plot = p1)
 
-p1 <- funcion_corr_2(logi = logi_noobf,gof=" No Obese Female  subjects")
+p1 <- funcion_corr_2(logi = logi_noobf,gof="\n No Obese Female  subjects")
 ggsave(filename=file.path(directorio_bivariante_factores_cov,"corr_factors_cov_noobf.jpeg"),plot = p1)
 
-p1 <- funcion_corr_2(logi = logi_noobm,gof=" No Obese Male subjects")
+p1 <- funcion_corr_2(logi = logi_noobm,gof=" \nNo Obese Male subjects")
 ggsave(filename=file.path(directorio_bivariante_factores_cov,"corr_factors_cov_noobm.jpeg"),plot = p1)
 
-p1 <- funcion_corr_2(logi = logi_noobp,gof=" No Obese PCOS subjects")
+p1 <- funcion_corr_2(logi = logi_noobp,gof="\n No Obese PCOS subjects")
 ggsave(filename=file.path(directorio_bivariante_factores_cov,"corr_factors_cov_noobp.jpeg"),plot = p1)
 
-p1 <- funcion_corr_2(logi = logi_obf,gof=" Obese  Female subjects")
+p1 <- funcion_corr_2(logi = logi_obf,gof=" \nObese  Female subjects")
 ggsave(filename=file.path(directorio_bivariante_factores_cov,"corr_factors_cov_obf.jpeg"),plot = p1)
 
-p1 <- funcion_corr_2(logi = logi_obm,gof=" Obese  Male subjects")
+p1 <- funcion_corr_2(logi = logi_obm,gof=" \nObese  Male subjects")
 ggsave(filename=file.path(directorio_bivariante_factores_cov,"corr_factors_cov_obm.jpeg"),plot = p1)
 
-p1 <- funcion_corr_2(logi = logi_obp,gof=" Obese PCOS subjects")
+p1 <- funcion_corr_2(logi = logi_obp,gof=" \nObese PCOS subjects")
 ggsave(filename=file.path(directorio_bivariante_factores_cov,"corr_factors_cov_obp.jpeg"),plot = p1)
 
-p1 <- funcion_corr_2(logi = rep(T,nrow(clinic)),gof=" All subjects")
+p1 <- funcion_corr_2(logi = rep(T,nrow(clinic)),gof=" \nAll subjects")
 ggsave(filename=file.path(directorio_bivariante_factores_cov,"corr_factors_cov_all.jpeg"),plot = p1)
 ```
 
@@ -2040,6 +2040,9 @@ p9 <- ggcorrplot::ggcorrplot(corr = r.fob$r,p.mat = symetric_p(r.fob),tl.cex = t
 p10 <- ggcorrplot::ggcorrplot(corr = r.mob$r,p.mat = symetric_p(r.mob),tl.cex = tamano ,hc.order = F,pch.cex = 1,tl.srt = 90)+ ggtitle("Obese Male")
 p11 <- ggcorrplot::ggcorrplot(corr = r.pob$r,p.mat = symetric_p(r.pob),tl.cex = tamano ,hc.order = F,pch.cex = 1,tl.srt = 90)+ ggtitle("Obese PCOS")
 
+p12 <- ggcorrplot::ggcorrplot(corr = r.pob$r,p.mat = symetric_p(r.pob),tl.cex = tamano ,hc.order = F,pch.cex = 1,tl.srt = 90)+ ggtitle("All subjects")
+
+
 lista.plots <- list(obese = p1,
                     NoObese = p2,
                     female = p3,
@@ -2050,7 +2053,8 @@ lista.plots <- list(obese = p1,
                     noobp = p8,
                     obf = p9,
                     obm = p10,
-                    obp = p11)
+                    obp = p11,
+                    all = p12)
 
 directorio_first_bivariate<- file.path(directorio,"first_bivariate_vis")
 if(!dir.exists(directorio_first_bivariate)){
@@ -2310,6 +2314,25 @@ ggsave(filename=file.path(directorio_final_pca_contrib,"ggstat_PC2_grupo.jpeg"),
 
 ```
 
+```{r}
+p1 <- ggstatsplot::grouped_ggbetweenstats(plts,x = grupo,y = PC1,p.adjust.method = "BH",grouping.var = obesidad)
+p1
+ggsave(filename=file.path(directorio_final_pca_contrib,"ggstatgruped_PC1_obgroup.jpeg"),plot = p1)
+
+p1 <- ggstatsplot::grouped_ggbetweenstats(plts,x = grupo,y = PC2,p.adjust.method = "BH",grouping.var = obesidad)
+p1
+ggsave(filename=file.path(directorio_final_pca_contrib,"ggstatgruped_PC2_obgroup.jpeg"),plot = p1)
+```
+
+```{r}
+p1 <- ggstatsplot::grouped_ggbetweenstats(plts,x = obesidad,y = PC1,p.adjust.method = "BH",grouping.var = grupo)
+p1
+ggsave(filename=file.path(directorio_final_pca_contrib,"ggstatgruped_PC1_groupob.jpeg"),plot = p1)
+
+p1 <- ggstatsplot::grouped_ggbetweenstats(plts,x = obesidad,y = PC2,p.adjust.method = "BH",grouping.var = grupo)
+p1
+ggsave(filename=file.path(directorio_final_pca_contrib,"ggstatgruped_PC2_groupob.jpeg"),plot = p1)
+```
 
 
 ### PC1
@@ -2328,7 +2351,7 @@ p1 <- ggplot(data = toplot, mapping = aes(x = reorder(names, r), r)) +
 
 dfgg <- data.frame(PC1=pcx$x[,1],Obesity=obesidad_)
 
-ttest <- t.test(pcx$x ~ obesidad_)
+ttest <- t.test(pcx$x[,1] ~ obesidad_)
 ttest$statistic
 ttest$p.value
 p2 <- ggplot(dfgg,aes(x=Obesity,y=PC1))+geom_boxplot()+ggtitle(paste0("Obesity by the first PC \nt = ",round(ttest$statistic,2),
@@ -2370,7 +2393,7 @@ dfgg <- data.frame(PC1=pcx$x[grupo_ %in% ctrl,1],Control=ctrl)
 ttest <- t.test(pcx$x[grupo_ %in% ctrl,1] ~ ctrl)
 ttest$statistic
 ttest$p.value
-p2 <- ggplot(dfgg,aes(x=Control,y=PC1))+geom_boxplot()+ggtitle(paste0("Sex differences by the first PC \nt = ",round(ttest$statistic,2),
+p2 <- ggplot(dfgg,aes(x=Control,y=PC1))+geom_boxplot()+ggtitle(paste0("Sex differences \n first PC \nt = ",round(ttest$statistic,2),
                                                                " and p-value = ",round(ttest$p.value,4)))
 
 p3 <- ggarrange(p1,p2)
@@ -2759,11 +2782,11 @@ p1 <- ggplot(data = toplot, mapping = aes(x = reorder(names, r), r)) +
 
 dfgg <- data.frame(PC2=pcx$x[,2],Obesity=obesidad_)
 
-ttest <- t.test(pcx$x ~ obesidad_)
+ttest <- t.test(pcx$x[,2] ~ obesidad_)
 ttest$statistic
 ttest$p.value
 p2 <- ggplot(dfgg,aes(x=Obesity,y=PC2))+geom_boxplot()+ggtitle(paste0("Obesity by the second PC \nt = ",round(ttest$statistic,2),
-                                                               " and p-value = ",round(ttest$p.value,2)))
+                                                               " and p-value = ",round(ttest$p.value,5)))
 
 p3 <- ggarrange(p1,p2)
 p3
