@@ -20,6 +20,7 @@ library(ALDEx2)
 library(MOFA2)
 library(PERMANOVA)
 library(ggrepel)
+library(dicosar)
 source("../scripts_R/scripts_utiles/scripts_funciones/vanvalen2.R")
 source("../scripts_R/scripts_utiles/scripts_funciones/manova_vanvalen.R")
 source("../scripts_R/scripts_utiles/scripts_funciones/otras_funciones_utiles.R")
@@ -526,6 +527,50 @@ fun_plot_limma2 <- function(R,biomarcadores,titulo) {
   return(p1)
 }
 
+fun_plot_limma3 <- function(R,biomarcadores,titulo) {
+  lista.results <- misuper3(R)
+  medias <- lista.results$medias[biomarcadores,]
+  medias$categoria <-
+    ifelse(rownames(medias) %in% rownames(modelo@data$metaboloma$group1),
+           1,
+           "OTHER")
+  medias$categoria <-
+    ifelse(rownames(medias) %in% rownames(modelo@data$ip$group1),
+           2,
+           medias$categoria)
+  medias$categoria <-
+    ifelse(rownames(medias) %in% rownames(modelo@data$metagenoma$group1),
+           3,
+           medias$categoria)
+  medias$categoria <- as.factor(medias$categoria)
+  medias <- reshape2::melt(medias)
+  medias$variables <- as.factor(medias$variables)
+  medias$categoria <- as.numeric(medias$categoria)
+  # colnames(csa) <-c("variables","sujetos","categoria","")
+  pvalues <- lista.results$pvalores[biomarcadores,]
+  pvalues <- reshape2::melt(pvalues)
+  
+  medias$text <- ifelse(pvalues$value < 0.05, "*", "")
+  p1 <- ggplot(medias, aes(
+    reorder(variables, categoria),
+    variable,
+    fill = value,
+    label = text
+  )) + geom_tile() + scale_fill_gradient2(low = "red",
+                                          high = "blue",
+                                          mid = "white") + theme(axis.text.x = element_text(
+                                            angle = 90,
+                                            vjust = 0.5,
+                                            hjust = 1
+                                          )) + geom_text() + theme(text = element_text(size = 9, face = "bold"))  + xlab("") +
+    ylab("") + ggtitle(titulo)
+  
+  return(p1)
+}
+
+
+
+
 funcion_corr <- function(X,cex_variables,title){
   
   R2.corr <- corr.test(X)
@@ -901,7 +946,7 @@ extract_cov <- function(omic) {
   biomarcadores_lista <- fun_summary(prueba)
   selected_biomarkers <-
     lapply(biomarcadores_lista, function(x)
-      x[x$pval < 0.05 & x$pval.value < 0.05, ])
+      x[x$pval < 1 & x$pval.value < 1, ])
   
 
   return(selected_biomarkers)
@@ -1152,20 +1197,23 @@ FUN_van_valen_mantel <- function(R, variables.lista) {
 
 FUN_van_valen_mantel_2 <- function(R) {
   
-  
+
+
   ## por obesidad
   p.obesidad <-
     fun_wrapper_vanvalen(as.matrix((R)), obesidad, T)
 
   obesidad.matrices <- lapply(split(R,obesidad),function(x) t(dist(x)))
+  
   prueba.mantel <- mantel(obesidad.matrices[[1]],obesidad.matrices[[2]])
+  
   p.obesidad.mantel <- c(prueba.mantel$statistic,prueba.mantel$signif)
+
   ### spliteamos el grupo
   
   ctrl <- droplevels(grupo[grupo == "Female" | grupo == "Male"])
   females <- droplevels(grupo[grupo == "Female" | grupo == "PCOS"])
   hermas <- droplevels(grupo[grupo == "Male" | grupo == "PCOS"])
-  
   
   p.sex <-
     fun_wrapper_vanvalen(R[grupo == "Female" |
@@ -1175,7 +1223,6 @@ FUN_van_valen_mantel_2 <- function(R) {
   grupo.matrices <- lapply(split(as.data.frame(R[grupo !="PCOS",]),ctrl),function(x) dist(t(x)))
   prueba.mantel <- mantel(grupo.matrices[[1]],grupo.matrices[[2]])
   p.sex.mantel <- c(prueba.mantel$statistic,prueba.mantel$signif)
-  
   p.females <-
     fun_wrapper_vanvalen(R[grupo == "Female" |
                              grupo == "PCOS", ], categorica = females, cor =
@@ -1183,6 +1230,7 @@ FUN_van_valen_mantel_2 <- function(R) {
   grupo.matrices <- lapply(split(as.data.frame(R[grupo !="Male",]),females),function(x) dist(t(x)))
   prueba.mantel <- mantel(grupo.matrices[[1]],grupo.matrices[[2]])
   p.females.mantel <- c(prueba.mantel$statistic,prueba.mantel$signif)
+
 
   
   p.hermas <-
@@ -1215,6 +1263,8 @@ FUN_van_valen_mantel_2 <- function(R) {
   grupo.matrices <- lapply(split(as.data.frame(R[(grupo == "Female" |
                               grupo == "Male") &
                              obesidad == "No Obese", ]),ctrl),function(x) dist(t(x)))
+  
+  
   prueba.mantel <- mantel(grupo.matrices[[1]],grupo.matrices[[2]])
   p.sex.no.mantel <-  c(prueba.mantel$statistic,prueba.mantel$signif)
   
@@ -1336,6 +1386,33 @@ FUN_van_valen_mantel_2 <- function(R) {
   
   pcosnoob.mantel <-  c(prueba.mantel$statistic,prueba.mantel$signif)
   
+  ## obesidad dico
+  matrices_obesidad <- split(R,obesidad)
+  # p.dico_OB <- dicosar::dicosar(matrices_obesidad$`No Obese`,matrices_obesidad$Obese)$p_global
+  ## grupo dico
+  matrices_grupo <- split(R,grupo)
+  # p.dico_FM <- dicosar(matrices_grupo$Female,matrices_grupo$Male)$p_global
+  # p.dico_FP <- dicosar(matrices_grupo$Female,matrices_grupo$PCOS)$p_global
+  # p.dico_PM <- dicosar(matrices_grupo$Female,matrices_grupo$Male)$p_global
+
+  ## grupo no obesos dico
+  grupo_noob_logi  <- obesidad=="No Obese"
+  R_grupo_noob <- R[grupo_noob_logi,]
+  grupo_noob <- grupo[obesidad=="No Obese"]
+  matrices_grupo_noob <- split(R_grupo_noob,grupo_noob)
+  # p.dico_FMNOOB <- dicosar(matrices_grupo_noob$Female,matrices_grupo_noob$Male)$p_global
+  # p.dico_FPNOOB <- dicosar(matrices_grupo_noob$Female,matrices_grupo_noob$PCOS)$p_global
+  # p.dico_PMNOOB <- dicosar(matrices_grupo_noob$Female,matrices_grupo_noob$Male)$p_global
+  #   ## grupo obesos dico
+  grupo_ob_logi  <- obesidad=="Obese"
+  R_grupo_ob <- R[grupo_ob_logi,]
+  grupo_ob <- grupo[obesidad=="Obese"]
+  matrices_grupo_ob <- split(R_grupo_ob,grupo_ob)
+  # p.dico_FMOB <- dicosar(matrices_grupo_ob$Female,matrices_grupo_ob$Male)$p_global
+  # p.dico_FMOB <- dicosar(matrices_grupo_ob$Female,matrices_grupo_ob$PCOS)$p_global
+  # p.dp.dico_FMOBico <- dicosar(matrices_grupo_ob$PCOS,matrices_grupo_ob$Male)$p_global
+  # 
+  
   resvan.list <- (
     list(
       obesidad = p.obesidad,
@@ -1387,6 +1464,8 @@ FUN_van_valen_mantel_2 <- function(R) {
   res <- cbind(resvan1,resvan2)
   return(res)
 }
+
+
 
 funcion_corr_2 <- function(logi,gof) {
 
@@ -1442,7 +1521,7 @@ modelo <- MOFA2::select_model(modelos,plot=T)
 ## DIRECTORIO PARA GUARDAR
 
 ```{r}
-directorio <- "../resultados_050323_v3"
+directorio <- "../resultados_050323_v5_all covariables"
 if(!dir.exists(directorio)){
   dir.create(directorio)
 }
@@ -1483,8 +1562,6 @@ p1
 ggsave(filename = file.path(directorio_preliminar,"univariate_factors.jpeg"),plot = p1)
 ```
 
-
-
 ## COVARIABLES
 
 ### UNIVARIATE COVARIABLES
@@ -1499,8 +1576,7 @@ p1
 ggsave(filename = file.path(directorio_preliminar,"univariate_covariables.jpeg"),plot = p1)
 ```
 
-
-### RESULTADOS BIVARIANTES CON FACTORES 
+### RESULTADOS BIVARIANTES CON FACTORES
 
 ```{r}
 directorio_bivariante_factores_cov <- file.path(directorio,"factores_cov")
@@ -1508,7 +1584,6 @@ if(!dir.exists(directorio_bivariante_factores_cov)){
   dir.create(directorio_bivariante_factores_cov)
 }
 ```
-
 
 ```{r}
 logi_noob <- which(obesidad=="No Obese")
@@ -1558,6 +1633,11 @@ ggsave(filename=file.path(directorio_bivariante_factores_cov,"corr_factors_cov_o
 p1 <- funcion_corr_2(logi = rep(T,nrow(clinic)),gof=" \nAll subjects")
 ggsave(filename=file.path(directorio_bivariante_factores_cov,"corr_factors_cov_all.jpeg"),plot = p1)
 ```
+
+
+
+
+
 
 
 # LATENT VARIABLES DISTRIBUTION
@@ -1665,6 +1745,7 @@ factores <- get_factors(modelo, scale = T)[[1]]
 # DOWNSTREAM ANALYSIS
 
 EN FUNCION DE FACTORES Y PESOS OBTENEMOS LAS VARIABLE MAS IMPROTANTES
+
 ```{r}
 metaboloma.r <- factores[,1:2] %*% t(pesos[rownames(modelo@data$metaboloma$group1),1:2])
 proteoma.r <- factores[,2:4] %*% t(pesos[rownames(modelo@data$ip$group1),2:4])
@@ -1677,6 +1758,8 @@ res.mic <- extract_features(micro.r,3:5)
 res.prot <- extract_features(proteoma.r,2:4)
 res.cov <- extract_cov(covariables)
 ```
+
+
 
 ### BIOMARKER SELECTION
 
@@ -1702,6 +1785,8 @@ names(vector.res) <- names(res.met)
 ```{r}
 biomarcadores <- unique(unlist(lapply(vector.res,rownames)))
 ```
+
+# RECONSTRURUIIMOS
 
 ```{r}
 
@@ -1739,9 +1824,8 @@ ggsave(filename=file.path(directorio_second_PCA,"reconstruccion_pca_biomarkers.j
 p1
 ```
 
-
-
 ## UNIVARIATE ANALYSIS ON BIOMARKERS
+
 PRIMERO SELECCIONAMOS A LO BRUTO ANTES Y DESPUES
 
 COMPARATIVA
@@ -1770,8 +1854,6 @@ p3
 ```
 
 ## UNIVARIATE ANALYSIS 2 BIOMARKERS
-
-
 
 ```{r}
 variables.lista <- lapply(vector.res, rownames)
@@ -1802,6 +1884,7 @@ for(i in 1:nrow(matriz)){
   
 }
 ```
+
 ```{r}
 matriz
 ```
@@ -1820,7 +1903,6 @@ colnames(matriz) <- names(variables.lista)
 write.csv(matriz,file=file.path(directorio_first_univariate,"univariate_coef.csv"))
 ```
 
-
 ```{r}
 sort(biomarcadores)
 ```
@@ -1834,7 +1916,6 @@ if(!dir.exists(directorio_second_univariate)){
 }
 
 ```
-
 
 ```{r}
 medias <- as.data.frame(matriz[-which(rownames(matriz) %in% colnames(covariables)),])
@@ -1875,7 +1956,6 @@ p1
 
 ggsave(filename=file.path(directorio_second_univariate,"Univariate_biomarkers_reconstructed_v2.jpeg"),plot = p1)
 ```
-
 
 ## UNIVARIATE BIOMARKER COVARIABLE ANALAYSIS 2
 
@@ -1918,12 +1998,10 @@ medias <- as.data.frame(scale(matriz[which(rownames(matriz) %in% colnames(covari
 
 ```
 
-
-
-
 ### BIOMARKER SELECTION 2 EASIER VISUALIZATION
 
 DUMMY FUNCTION SOLO HICIMOS FUNCION PARA NO ESTAR PROBANDO
+
 ```{r}
 
 extract_features_2 <- function(omic,f,pvalt,pesot) {
@@ -2007,6 +2085,7 @@ feature_extraction_vis <- function(pvalt_,pesot_) {
 
 
 biomarcadores_vis <- feature_extraction_vis(0.02,0.9)
+biomarcadores_vis <- unique(c(colnames(covariables),biomarcadores_vis))
 
 r.obese <- corr.test(R[obesidad=="Obese",biomarcadores_vis],adjust = "BH")
 r.noob <- corr.test(R[obesidad=="No Obese",biomarcadores_vis],adjust = "BH")
@@ -2072,13 +2151,11 @@ lista.plots
 
 ```{r}
 
-
-res.bivariante  <- FUN_van_valen_mantel_2(R[,biomarcadores])
+res.bivariante  <- FUN_van_valen_mantel_2((R[,biomarcadores]))
 colnames(res.bivariante) <- c("p-val","t","r","p-val-mantel")
 write.csv(round(res.bivariante,4),file.path(directorio_first_bivariate,"bivariate_results_vanvalen_mantel_post_biomarkers.csv"))
 
 ```
-
 
 ```{r}
 (res <- FUN_van_valen_mantel_2(R = as.matrix(pre[,biomarcadores])))
@@ -2087,11 +2164,32 @@ write.csv(round(res.bivariante,4),file.path(directorio_first_bivariate,"bivariat
 write.csv(round(res,4),file.path(directorio_first_bivariate,"bivariate_results_vanvalen_mantel_pre.csv"))
 ```
 
+```{r}
+(res <- FUN_van_valen_mantel_2(R = as.matrix(pre[,biomarcadores_vis])))
+
+
+write.csv(round(res,4),file.path(directorio_first_bivariate,"bivariate_results_vanvalen_mantel_pre_vis.csv"))
+```
+
+```{r}
+(res <- FUN_van_valen_mantel_2(R = as.matrix(R[,biomarcadores_vis])))
+
+
+write.csv(round(res,4),file.path(directorio_first_bivariate,"bivariate_results_vanvalen_mantel_post_vis.csv"))
+```
+
+```{r}
+
+```
+
+
+
 # PCA
 
 ## OUTLIER DETECTION
 
 ### PC1
+
 ```{r}
 pcx <- prcomp(R[,biomarcadores])
 ncomp<-1 
@@ -2200,9 +2298,7 @@ which(abs(stud) > abs(qt(0.05/(2*n),grlib)))
 w <- which(rownames(R) %in% c("PdGLP6","MdGLP4"))
 ```
 
-
 ## PCA COMO TAL
-
 
 ```{r}
 directorio_final_pca<- file.path(directorio,"directorio_final_pca")
@@ -2246,7 +2342,6 @@ ggsave(filename=file.path(directorio_final_pca,"PCA_biomarkers_with_outliers_3.j
 p.list
 ```
 
-
 ```{r}
 grupo_ <- grupo[-w]
 obesidad_ <- obesidad[-w]
@@ -2273,8 +2368,6 @@ ggsave(filename=file.path(directorio_final_pca,"PCA_contrib_intial_2.jpeg"),plot
 p1
 p2
 ```
-
-
 
 ## ANALYSIS DE CONTRIBUCIONES
 
@@ -2334,9 +2427,10 @@ p1
 ggsave(filename=file.path(directorio_final_pca_contrib,"ggstatgruped_PC2_groupob.jpeg"),plot = p1)
 ```
 
-
 ### PC1
 
+SE DEBE DE REALIZAR EL ANALISIS CON LA MATRIZ CENTRADA Y ESCALADA
+LUEGO SE COMPUTAN LOS LOADIGNS CON LA CORRELACION DE LA MATRIZ 
 ```{r}
 obesidad_ <- obesidad[-w]
 grupo_ <- grupo[-w]
@@ -2877,8 +2971,8 @@ ttest$p.value
 p2 <- ggplot(dfgg,aes(x=Control,y=PC2))+geom_boxplot()+ggtitle(paste0("PCOS and male \n differences by the second PC \nt = ",round(ttest$statistic,2),
                                                                " and p-value = ",round(ttest$p.value,4)))
 
-p3 <- ggarrange(p1,p2)
-p3
+p4 <- ggarrange(p1,p2)
+p4
 
 
 ggsave(filename=file.path(directorio_final_pca_contrib,"PC2_pcosmales_differences.jpeg"),plot = p3)
@@ -3221,6 +3315,54 @@ p3
 ggsave(filename=file.path(directorio_final_pca_contrib,"PC2_pcos_obesity_differences.jpeg"),plot = p3)
 
 ```
+
+## medias de limma
+
+```{r}
+p1 <- fun_plot_limma2(R = scale(covariables),biomarcadores = colnames(covariables),titulo = "")
+
+p1$data
+
+coefs  <- matrix(p1$data$value,nrow=ncol(covariables),ncol=length(unique(p1$data$variable)))
+
+rownames(coefs) <- colnames(covariables)
+
+colnames(coefs) <- unique(p1$data$variable)
+
+coefs
+```
+
+```{r}
+p1$data
+```
+
+```{r}
+p1 <- fun_plot_limma2(R = R,biomarcadores = biomarcadores,titulo = "")
+
+p1$data
+
+coefs  <- matrix(p1$data$value,nrow=ncol(R),ncol=length(unique(p1$data$variable)))
+
+rownames(coefs) <- colnames(R)
+
+colnames(coefs) <- unique(p1$data$variable)
+
+coefs
+```
+
+
+```{r}
+csa <- cor(t(pcx$rotation),t(pcx$x))
+dim(csa)
+colnames(csa)
+dim(csa)
+```
+```{r}
+csa
+```
+
+
+
 
 
 
