@@ -809,6 +809,7 @@ plot_correlation <-  function(R, titulo) {
   
 }
 extract_features <- function(omic, f, pvals, threshold) {
+
   prueba <- misuper3(omic)
   omic_vars <- colnames(omic)
   biomarcadores_lista <- fun_summary(prueba)
@@ -820,10 +821,15 @@ extract_features <- function(omic, f, pvals, threshold) {
     unique(unlist(lapply(selected_biomarkers, rownames)))
   pesos_omic <- pesos[omic_vars, f]
   
-  pesos_selected <-
-    rownames(pesos_omic)[apply(pesos_omic, 2, function(x)
-      any(abs(x) > threshold))] ##aqui
-  
+  if(length(f)>1){
+    pesos_selected <-
+      rownames(pesos_omic)[apply(pesos_omic, 2, function(x)
+        any(abs(x) > threshold))] ##aqui
+    
+  }else{
+ 
+    pesos_selected <- names(pesos_omic)[which(abs(pesos_omic)>threshold)]
+  }
   
   variables_selected <- intersect(pesos_selected, varis)
   
@@ -1174,16 +1180,16 @@ p1
 ### overall threshold
 
 #
-metaboloma.r <- factores[, 1] %*% t(pesos[rownames(modelo@data$metaboloma$group1), 1])
-proteoma.r <- factores[, 2:3] %*% t(pesos[rownames(modelo@data$ip$group1), 2:3])
+metaboloma.r <- factores[, 1:2] %*% t(pesos[rownames(modelo@data$metaboloma$group1), 1:2])
+proteoma.r <- factores[, 2:4] %*% t(pesos[rownames(modelo@data$ip$group1), 2:4])
 micro.r <- factores[, 3:5] %*% t(pesos[rownames(modelo@data$metagenoma$group1), 3:5])
 
 pvals <- 0.05
 threshold <- 0.8
-res.met <- extract_features(metaboloma.r, 1, pvals = pvals, threshold =
+res.met <- extract_features(metaboloma.r, 1:2, pvals = pvals, threshold =
                               threshold)
 res.mic <- extract_features(micro.r, 3:5, pvals = pvals, threshold = threshold)
-res.prot <- extract_features(proteoma.r, 2:3, pvals = pvals, threshold =
+res.prot <- extract_features(proteoma.r, 2:4, pvals = pvals, threshold =
                                threshold)
 
 #
@@ -2416,4 +2422,41 @@ MOFA2::plot_factor(modelo,
                    factors = 5,
                    group_by = obesidad,
                    color_by = grupo)
+
+## 
+
+R  <- factores %*% t(pesos)
+
+R <- as.data.frame(R[,biomarcadores])
+
+
+pre_met <- rownames(modelo@data$metaboloma$group1)
+pre_prot <- rownames(modelo@data$ip$group1)
+pre_mic <- rownames(modelo@data$metagenoma$group1)
+
+pre_met <- pre_met[pre_met %in% biomarcadores]
+pre_prot <- pre_prot[pre_prot %in% biomarcadores]
+pre_mic <- pre_mic[pre_mic %in% biomarcadores]
+
+biomarcadores_ordenados <- c(pre_met,
+                             pre_prot,
+                             pre_mic)
+
+R <- R[,biomarcadores_ordenados]
+R.t <- as.data.frame(t(R))
+R.t$omic <- as.factor(c(rep("Metabolome",length(pre_met)),
+                        rep("Proteins",length(pre_prot)),
+                        rep("Microbiome",length(pre_mic))))
+R$obese_factor <- obesidad
+# Supongamos que tu dataframe se llama `df`
+# Si no tienes los datos en formato largo, lo convertimos primero
+df_long <- reshape2::melt(R[,c(19:ncol(R))]) # Transforma el dataframe a formato largo
+
+# Graficar boxplots de todas las variables
+ggplot(df_long, aes(x = variable, y = value,fill = obese_factor)) +
+  geom_boxplot() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) + # Rota etiquetas del eje X
+  labs(x = "Variables", y = "Valores", title = "Boxplot de múltiples variables")
+
+
 
