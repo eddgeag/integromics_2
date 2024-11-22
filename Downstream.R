@@ -2450,7 +2450,7 @@ R.t$omic <- as.factor(c(rep("Metabolome",length(pre_met)),
 R$obese_factor <- obesidad
 # Supongamos que tu dataframe se llama `df`
 # Si no tienes los datos en formato largo, lo convertimos primero
-df_long <- reshape2::melt(R[,c(19:ncol(R))]) # Transforma el dataframe a formato largo
+df_long <- reshape2::melt(R[,c(1:25,ncol(R))]) # Transforma el dataframe a formato largo
 
 # Graficar boxplots de todas las variables
 ggplot(df_long, aes(x = variable, y = value,fill = obese_factor)) +
