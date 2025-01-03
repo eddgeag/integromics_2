@@ -13,6 +13,9 @@ library(forcats)
 library(Bolstad)
 library(tidyr)
 library(limma)
+library(cowplot)
+library(ggsignif)
+library(rlang)
 
 datos <- readRDS("../datos/preprocesado_08_09_23/novoom-04-10-23.rds")
 
@@ -25,15 +28,17 @@ sexo <- datos$comunes$variables_in_bacteria$SEX
 
 levels(obesidad) <- c("No.Obese", "Obese")
 
+levels(grupo) <- c("Control.Women", "PCOS", "Men")
 ## contraste obesidad
 
 contraste_obesidad <- c(Obese_vs_NoObese = "Obese-No.Obese")
 
+
 ## contraste para grupo
 contrastes_grupo <- c(
-  Men_vs_Female = c("Male-Female"),
-  PCOS_vs_Female = c("PCOS-Female"),
-  PCOS_vs_Male = c("PCOS-Male")
+  Men_vs_Female = c("Men-Control.Women"),
+  PCOS_vs_Female = c("PCOS-Control.Women"),
+  PCOS_vs_Male = c("PCOS-Men")
 )
 
 ## interaccion
@@ -41,23 +46,23 @@ contrastes_grupo <- c(
 interaction_factor <- interaction(grupo, obesidad)
 ## cambiamos los nombres para que sean legibles
 levels(interaction_factor) <- c(
-  "Female_No.Obese",
+  "Control.Women_No.Obese",
   "PCOS_No.Obese",
   "Male_No.Obese",
-  "Female_Obese",
+  "Control.Women_Obese",
   "PCOS_Obese",
   "Male_Obese"
 )
 ## contrastes para itneraccion
 contrastes_interaccion <- c(
-  Female_Obese_vs_NoObese = "Female_Obese-Female_No.Obese",
+  Female_Obese_vs_NoObese = "Control.Women_Obese-Control.Women_No.Obese",
   PCOS_Obese_vs_NoObese = "PCOS_Obese-PCOS_No.Obese",
   Male_Obese_Vs_NoObese = "Male_Obese-Male_No.Obese",
-  No_Obese_Male_vs_Female = "Male_No.Obese-Female_No.Obese",
-  No_Obese_PCOS_vs_Female = "PCOS_No.Obese-Female_No.Obese",
+  No_Obese_Male_vs_Female = "Male_No.Obese-Control.Women_No.Obese",
+  No_Obese_PCOS_vs_Female = "PCOS_No.Obese-Control.Women_No.Obese",
   No_Obese_PCOS_vs_Male = "PCOS_No.Obese-Male_No.Obese",
-  Obese_Male_vs_Female = "Male_Obese-Female_Obese",
-  Obese_PCOS_vs_Female = "PCOS_Obese-Female_Obese",
+  Obese_Male_vs_Female = "Male_Obese-Control.Women_Obese",
+  Obese_PCOS_vs_Female = "PCOS_Obese-Control.Women_Obese",
   Obese_PCOS_vs_Male = "PCOS_Obese-Male_Obese"
 )
 
@@ -90,17 +95,25 @@ factores_interes <- list(obesidad = obesidad,
 
 ###====FUNCIONES======
 fun_pca <- function(R,
-                    biomarcadores,
+                    scalar,
                     titulo,
+                    biomarcadores,
+                    text_size,
+                    altura,
+                    ancho,
                     dir_to_save,
-                    name_to_save) {
-  pcx <- prcomp(R[, biomarcadores])
+                    name_to_save,
+                    common_axes,
+                    scale_labs,
+                    legend_size,
+                    size_points) {
+  pcx <- prcomp(R[, biomarcadores], scale. = scalar)
   
   plotdf <- data.frame(pcx$x,
                        Group = grupo,
                        Obesity = obesidad,
                        sujetos = rownames(R))
-  varianzas <- round(100 * (pcx$sdev ^ 2) / sum(pcx$sdev ^ 2), 2)
+  varianzas <- round(100 * (pcx$sdev^2) / sum(pcx$sdev^2), 2)
   
   levels(plotdf$Obesity) <- c("No Obese", "Obese")
   interaccion <- interaction(grupo, obesidad)
@@ -115,21 +128,23 @@ fun_pca <- function(R,
   
   plotdf$subjects <- interaccion
   
-  
-  p4 <- factoextra::fviz_screeplot(pcx) + ylab("% Variance")
-  
+  p4 <- factoextra::fviz_screeplot(pcx) + ylab("% Variance") + ggtitle("") + theme(
+    axis.title.y = element_text(size = text_size),
+    axis.title.x = element_text(size = text_size),
+    axis.text.x = element_text(size = text_size * scale_labs),
+    axis.text.y = element_text(size = text_size * scale_labs)
+  )
   
   levels(plotdf$Group) <- c("Control Women", "PCOS", "Men")
   
-  
-  colores <- ifelse(plotdf$subjects == "Control Women: No Obese", "darkgreen", NA)
-  colores <- ifelse(plotdf$subjects == "PCOS: No Obese", "yellow4", colores)
-  colores <- ifelse(plotdf$subjects == "Men: No Obese", "red4", colores)
+  colores <- ifelse(plotdf$subjects == "Control Women: No Obese", "chartreuse", NA)
+  colores <- ifelse(plotdf$subjects == "PCOS: No Obese", "gold33", colores)
+  colores <- ifelse(plotdf$subjects == "Men: No Obese", "red", colores)
   colores <- ifelse(plotdf$subjects == "Control Women: Obese" ,
-                    "lightgreen",
+                    "chartreuse4",
                     colores)
-  colores <- ifelse(plotdf$subjects == "PCOS: Obese", "wheat3", colores)
-  colores <- ifelse(plotdf$subjects == "Men: Obese", "red", colores)
+  colores <- ifelse(plotdf$subjects == "PCOS: Obese", "darkorange2", colores)
+  colores <- ifelse(plotdf$subjects == "Men: Obese", "darkred", colores)
   
   formas <- ifelse(plotdf$Group == "Control Women", 0, NA)
   formas <- ifelse(plotdf$Group == "PCOS", 1, formas)
@@ -137,81 +152,130 @@ fun_pca <- function(R,
   
   plotdf$colores <- colores
   plotdf$formas <- formas
-  # formas <- c("Control Women" = 0, "PCOS" = 1, "Men" = 2)
   
-  # Crear el plot con bordes en negro y relleno de color
   plot1 <- ggplot(plotdf, aes(
     x = PC1,
     y = PC2,
     shape = Group,
-    color = subjects,
+    color = subjects
   )) +
-    geom_point(size = 3, aes(shape = Group, color = subjects)) +  # Bordes en negro
-    scale_shape_manual(values = c(15, 16, 17)) +  # Definir las formas manualmente
+    geom_point(size = size_points) +
     scale_color_manual(
       values = c(
-        "Control Women: No Obese" = "green",
-        "PCOS: No Obese" = "yellow",
+        "Control Women: No Obese" = "chartreuse",
+        "PCOS: No Obese" = "gold3",
         "Men: No Obese" = "red",
-        "Control Women: Obese" = "seagreen4",
-        "PCOS: Obese" = "#EEE685",
-        "Men: Obese" = "#8B0000"
+        "Control Women: Obese" = "chartreuse4",
+        "PCOS: Obese" = "darkorange2",
+        "Men: Obese" = "darkred"
       )
-    ) + # Definir los colores de relleno manualmente
+    ) +
+    scale_shape_manual(values = c(
+      "Control Women" = 15,
+      "PCOS" = 16,
+      "Men" = 17
+    )) +
     xlab(paste0("PC1: ", varianzas[1], "%")) +
-    ylab(paste0("PC2: ", varianzas[2], "%")) + theme(text = element_text(size = 5))
+    ylab(paste0("PC2: ", varianzas[2], "%")) + ggtitle("All") +
+    theme(
+      axis.title.y = element_text(size = text_size),
+      axis.title.x = element_text(size = text_size),
+      axis.text.x = element_text(size = text_size *  scale_labs),
+      axis.text.y = element_text(size = text_size * scale_labs),
+      plot.title = element_text(size = text_size * 0.5),
+      legend.title = element_blank()
+    ) +
+    guides(shape = guide_legend(order = 1), color = guide_legend(order = 2))
   
-  # plot1# Gráfico 2 - Solo triángulos (obesidad)
   plot2 <- ggplot(subset(plotdf, Obesity == "Obese"),
                   aes(
                     x = PC1,
                     y = PC2,
-                    fill = subjects,
-                    shape = Group
+                    shape = Group,
+                    color = subjects
                   )) +
-    geom_point(size = 3, aes(shape = Group, color = subjects)) +  # Bordes en negro
-    scale_shape_manual(values = c(15, 16, 17)) +  # Definir las formas manualmente
+    geom_point(size = size_points) +
+    scale_shape_manual(values = c(15, 16, 17)) +
     scale_color_manual(
       values = c(
-        "Control Women: Obese" = "seagreen4",
-        "PCOS: Obese" = "#EEE685",
-        "Men: Obese" = "#8B0000"
+        "Control Women: Obese" = "chartreuse4",
+        "PCOS: Obese" = "darkorange2",
+        "Men: Obese" = "darkred"
       )
-    ) + # Definir los colores de relleno manualmente
-    xlab(paste0("PC1: ", varianzas[1], "%")) +
-    ylab(paste0("PC2: ", varianzas[2], "%")) + theme(legend.position = "none", text = element_text(size = 5))
+    ) +
+    xlab("") +
+    ylab("") + ggtitle("Obese") +
+    theme(
+      legend.position = "none",
+      axis.title.y = element_text(size = text_size),
+      axis.title.x = element_text(size = text_size),
+      axis.text.x = element_text(size = text_size * scale_labs),
+      axis.text.y = element_text(size = text_size * scale_labs),
+      plot.title = element_text(size = text_size * 0.5),
+      legend.title = element_blank()
+    )
   
-  # Gráfico 3 - Solo círculos (no obesidad)
-  plot3 <- ggplot(subset(plotdf, Obesity == "No Obese"),
-                  aes(
-                    x = PC1,
-                    y = PC2,
-                    fill = subjects,
-                    shape = Group
-                  )) +
-    geom_point(size = 3, aes(shape = Group, color = subjects)) +  # Bordes en negro
-    scale_shape_manual(values = c(15, 16, 17)) +  # Definir las formas manualmente
+  plot3 <- ggplot(
+    subset(plotdf, Obesity == "No Obese"),
+    aes(
+      x = PC1,
+      y = PC2,
+      shape = Group,
+      color = subjects
+    )
+  ) +
+    geom_point(size = size_points) +
+    scale_shape_manual(values = c(15, 16, 17)) +
     scale_color_manual(
       values = c(
-        "Control Women: No Obese" = "green",
-        "PCOS: No Obese" = "yellow",
+        "Control Women: No Obese" = "chartreuse",
+        "PCOS: No Obese" = "gold3",
         "Men: No Obese" = "red"
       )
-    ) + # Definir los colores de relleno manualmente
-    xlab(paste0("PC1: ", varianzas[1], "%")) +
-    ylab(paste0("PC2: ", varianzas[2], "%")) + theme(legend.position = "none", text = element_text(size = 10))
+    ) +
+    xlab("") +
+    ylab(paste0("PC2: ", varianzas[2], "%")) + ggtitle("No Obese") +
+    theme(
+      legend.position = "none",
+      axis.title.y = element_text(size = text_size),
+      axis.title.x = element_text(size = text_size),
+      axis.text.x = element_text(size = text_size * scale_labs),
+      axis.text.y = element_text(size = text_size * scale_labs),
+      plot.title = element_text(size = text_size * 0.5),
+      legend.title = element_blank()
+    )
   
+  common_xlim <- c(-common_axes, common_axes)
+  common_ylim <- c(-common_axes, common_axes)
   
+  plot1 <- plot1 + scale_x_continuous(limits = common_xlim) + scale_y_continuous(limits = common_ylim)
+  plot2 <- plot2 + scale_x_continuous(limits = common_xlim) + scale_y_continuous(limits = common_ylim)
+  plot3 <- plot3 + scale_x_continuous(limits = common_xlim) + scale_y_continuous(limits = common_ylim)
   
-  combined_plot <- (plot2 + plot3) / (plot1 + p4) +
+  combined_plot <- (plot3 + plot2) / (plot1 + p4) +
     plot_layout(guides = "collect") +
-    plot_annotation(title = titulo)
-  combined_plot + theme(legend.key.size = 20, legend.text = 20)
+    plot_annotation(title = titulo) &
+    theme(
+      axis.ticks = element_line(),
+      axis.text = element_text(),
+      legend.key.size = unit(legend_size, "cm"),
+      legend.text = element_text(size = text_size * scale_labs),
+      legend.title = element_blank(),
+      plot.title = element_text(size =  scale_labs * text_size)
+    )
   
-  ggsave(plot = combined_plot, filename = file.path(dir_to_save, paste0(name_to_save, ".jpeg")))
+  ggsave(
+    plot = combined_plot,
+    filename = file.path(dir_to_save, paste0(name_to_save, ".jpeg")),
+    height = altura,
+    width = ancho
+  )
   
   return(combined_plot)
 }
+
+
+
 # Función para combinar makeContrasts y t.test
 contrast_t_test <- function(datas, factor_, response, contrast_expr) {
   # Verificar que el factor y la respuesta están en el dataframe
@@ -436,7 +500,11 @@ analyze_2by2_t_bayes <- function(df_to_analyze,
 
 
 
-fun_plot_contrasts <- function(tstats, pvals_bayes, post_difs, threshold) {
+fun_plot_contrasts <- function(tstats,
+                               pvals_bayes,
+                               post_difs,
+                               threshold,
+                               size_text) {
   tstat.melt <- reshape2::melt(tstats)
   pvals.melt <- reshape2::melt(pvals_bayes)
   posts.melt <- reshape2::melt(post_difs)
@@ -457,8 +525,12 @@ fun_plot_contrasts <- function(tstats, pvals_bayes, post_difs, threshold) {
                                                                                                             angle = 90,
                                                                                                             vjust = 0.5,
                                                                                                             hjust = 1
-                                                                                                          )) + geom_text(size = 5) + theme(text = element_text(size = 10, face = "bold"))  + xlab("") +
-    ylab("") + ggtitle(paste0("Empirical Bayesian T test: Pvals ", threshold))
+                                                                                                          )) + geom_text(size = 5) + theme(text = element_text(
+                                                                                                            size = size_text,
+                                                                                                            face = "bold",
+                                                                                                            color = "black"
+                                                                                                          ))  + xlab("") +
+    ylab("") + ggtitle(paste0("Empirical Bayesian T test: Pvals ", threshold)) + scale_y_discrete(labels = ordern_contrastes)
   return(p_)
 }
 feature_selection <- function(omic_features,
@@ -547,7 +619,7 @@ dummy_plot_weight_factor <- function(modelo, biomarcadores, dir_to_save) {
   pesos_biomarcadores$biomarcador <- as.factor(pesos_biomarcadores$biomarcador)
   pesos_biomarcadores$omic <- ifelse(
     rownames(pesos_biomarcadores) %in% rownames(modelo@data$metaboloma$group1),
-    "Metabolme",
+    "Metabolome",
     NA
   )
   pesos_biomarcadores$omic <- ifelse(
@@ -563,20 +635,21 @@ dummy_plot_weight_factor <- function(modelo, biomarcadores, dir_to_save) {
   pesos_biomarcadores$omic <- as.factor(pesos_biomarcadores$omic)
   # Plot
   factor1 <- pesos_biomarcadores %>% mutate(biomarcador = fct_reorder(biomarcador, Factor1)) %>% ggplot(aes(x =
-                                                                                                              biomarcador, y = Factor1)) +
+                                                                                                              biomarcador, y = Factor1, color = omic)) +
     geom_segment(aes(
       x = biomarcador,
       xend = biomarcador,
       y = 0,
       yend = Factor1,
-      colour = "black"
+      colour = omic
     )) +
-    geom_point(size = 5, colour = "black") +
+    geom_point(size = 5) +
     coord_flip() +
     theme(legend.position = "none") +
     xlab("") +
     ylab("Weight") +
-    ggtitle("Factor 1") + theme(text = element_text(size = 20)) + ylim(c(-1, 1))
+    ggtitle("Factor 1") + theme(text = element_text(size = 20)) + ylim(c(-1, 1)) +
+    scale_colour_manual(values = c("blue", "yellow", "gray"))
   # Combinar la gráfica original con la columna de símbolos
   
   # Mostrar la gráfica final
@@ -584,20 +657,21 @@ dummy_plot_weight_factor <- function(modelo, biomarcadores, dir_to_save) {
   
   # Plot
   factor2 <- pesos_biomarcadores %>% mutate(biomarcador = fct_reorder(biomarcador, Factor2)) %>% ggplot(aes(x =
-                                                                                                              biomarcador, y = Factor2)) +
+                                                                                                              biomarcador, y = Factor2, color = omic)) +
     geom_segment(aes(
       x = biomarcador,
       xend = biomarcador,
       y = 0,
       yend = Factor2,
-      colour = "black"
+      colour = omic
     )) +
     geom_point(size = 5) +
     coord_flip() +
     theme(legend.position = "none") +
     xlab("") +
     ylab("Weight") +
-    ggtitle("Factor 2") + theme(text = element_text(size = 20)) + ylim(c(-1, 1))
+    ggtitle("Factor 2") + theme(text = element_text(size = 20)) + ylim(c(-1, 1)) +
+    scale_colour_manual(values = c("blue", "yellow", "gray"))
   # Combinar la gráfica original con la columna de símbolos
   
   
@@ -605,59 +679,62 @@ dummy_plot_weight_factor <- function(modelo, biomarcadores, dir_to_save) {
   
   # Plot
   factor3 <- pesos_biomarcadores %>% mutate(biomarcador = fct_reorder(biomarcador, Factor3)) %>% ggplot(aes(x =
-                                                                                                              biomarcador, y = Factor3)) +
+                                                                                                              biomarcador, y = Factor3 , color = omic)) +
     geom_segment(aes(
       x = biomarcador,
       xend = biomarcador,
       y = 0,
       yend = Factor3,
-      colour = "black"
+      colour = omic
     )) +
-    geom_point(color = "black", size = 5) +
+    geom_point(size = 5) +
     coord_flip() +
     theme(legend.position = "none") +
     xlab("") +
     ylab("Weight") +
-    ggtitle("Factor 3") + theme(text = element_text(size = 20)) + ylim(c(-1, 1))
+    ggtitle("Factor 3") + theme(text = element_text(size = 20)) + ylim(c(-1, 1)) +
+    scale_colour_manual(values = c("blue", "yellow", "gray"))
   # Combinar la gr
   
   
   
   # Plot
   factor4 <- pesos_biomarcadores %>% mutate(biomarcador = fct_reorder(biomarcador, Factor4)) %>% ggplot(aes(x =
-                                                                                                              biomarcador, y = Factor4)) +
+                                                                                                              biomarcador, y = Factor4, color = omic)) +
     geom_segment(aes(
       x = biomarcador,
       xend = biomarcador,
       y = 0,
       yend = Factor4,
-      colour = "black"
+      colour = omic
     )) +
-    geom_point(color = "black", size = 5) +
+    geom_point(size = 5) +
     coord_flip() +
     theme(legend.position = "none") +
     xlab("") +
     ylab("Weight") +
-    ggtitle("Factor 4") + theme(text = element_text(size = 20)) + ylim(c(-1, 1))
+    ggtitle("Factor 4") + theme(text = element_text(size = 20)) + ylim(c(-1, 1)) +
+    scale_colour_manual(values = c("blue", "yellow", "gray"))
   # Combinar la gr
   
   
   # Plot
   factor5 <- pesos_biomarcadores %>% mutate(biomarcador = fct_reorder(biomarcador, Factor5)) %>% ggplot(aes(x =
-                                                                                                              biomarcador, y = Factor5)) +
+                                                                                                              biomarcador, y = Factor5, color = omic)) +
     geom_segment(aes(
       x = biomarcador,
       xend = biomarcador,
       y = 0,
       yend = Factor5,
-      colour = "black"
+      colour = omic
     )) +
-    geom_point(color = "black", size = 5) +
+    geom_point(size = 5) +
     coord_flip() +
     theme(legend.position = "none") +
     xlab("") +
     ylab("Weight") +
-    ggtitle("Factor 5") + theme(text = element_text(size = 20)) + ylim(c(-1, 1))
+    ggtitle("Factor 5") + theme(text = element_text(size = 20)) + ylim(c(-1, 1)) +
+    scale_colour_manual(values = c("blue", "yellow", "gray"))
   # Combinar la gr
   
   ggsave(
@@ -811,7 +888,12 @@ reconstruccion <- function(modelo) {
   return(R)
   
 }
-plot_contrastes_wrapper <- function(R, dir_to_save, name_to_save) {
+plot_contrastes_wrapper <- function(R,
+                                    dir_to_save,
+                                    name_to_save,
+                                    altura,
+                                    ancho,
+                                    size_text) {
   res_contrastes <- analyze_2by2_t_bayes(
     R,
     factor1 = obesidad,
@@ -824,10 +906,16 @@ plot_contrastes_wrapper <- function(R, dir_to_save, name_to_save) {
     tstats = res_contrastes$to_plot$tstats,
     pvals_bayes = res_contrastes$to_plot$pvals_adj,
     post_difs = res_contrastes$to_plot$post_difs,
-    threshold = 0.05
+    threshold = 0.05,
+    size_text = size_text
   )
   
-  ggsave(plot = p1, filename = file.path(dir_to_save, paste0(name_to_save, ".jpeg")))
+  ggsave(
+    plot = p1,
+    filename = file.path(dir_to_save, paste0(name_to_save, ".jpeg")),
+    width = ancho,
+    height = altura
+  )
   return(p1)
   
   
@@ -844,7 +932,13 @@ wrapper_pca <- function(X,
   return(p1)
 }
 
-fun_dummy_plot_clinical_latent <- function(modelo, dir_to_save, name_to_save) {
+fun_dummy_plot_clinical_latent <- function(modelo,
+                                           dir_to_save,
+                                           name_to_save,
+                                           ancho ,
+                                           altura,
+                                           factor_,
+                                           text_size) {
   feat_fuera <- c("group", "sample")
   idx <- sapply(feat_fuera, function(x)
     grep(x, colnames(modelo@samples_metadata)))
@@ -908,71 +1002,150 @@ fun_dummy_plot_clinical_latent <- function(modelo, dir_to_save, name_to_save) {
   #Get the p-values for matching columns
   
   # Create a data frame for ggplot2
+  
+  
+  correlation_matrix <- correlation_matrix[rev(rownames(correlation_matrix)), ]
+  p_value_matrix <- p_value_matrix[rev(rownames(p_value_matrix)), ]
+  
   data <- reshape2::melt(correlation_matrix)
   data$pvals <- reshape2::melt(p_value_matrix)$value
   
   # Add a column to indicate significance based on p-value < 0.05
   data$significant <- ifelse(data$pvals < 0.05, "*", "")
   
-  # Create the heatmap
-  p <- ggplot(data, aes(x = Var1, y = Var2, fill = value)) +  # Heatmap with single row
-    geom_tile() +
-    geom_text(aes(label = significant),
-              color = "black",
-              size = 10) +  # Add stars for significance
+  
+  
+  # Plot using ggplot2 with circles
+  p1 <-  ggplot(data, aes(x = Var2, y = Var1)) +
+    geom_tile(color = "grey",
+              fill = NA,
+              linewidth = 0.5) +  # Cuadrícula
+    geom_point(aes(
+      fill = value,
+      color = value,
+      size = abs(value)
+    ), shape = 16) + scale_size(range = c(1, factor_), guide = "none") + # Círculos con colores iguales
     scale_fill_gradient2(
       low = "blue",
       mid = "white",
       high = "red",
-      midpoint = 0,
-      limits = c(-1, 1)
-    ) +  # Color gradient
-    labs(x = "", y = "", fill = "Pearson Correlation\nCoefficient") +
-    theme_minimal() + scale_x_discrete(labels = c("Factor 1", "Factor 2", "Factor 3", "Factor 4", "Factor 5")) + theme(
+      guide = "none"
+    ) +  # Escala de relleno sin leyenda
+    scale_color_gradient2(low = "blue",
+                          mid = "white",
+                          high = "red") +  # Escala de borde con leyenda
+    geom_text(aes(label = significant),
+              color = "black",
+              size = 7) +  # Texto en cada celda
+    theme_minimal() +
+    theme(
       axis.text.x = element_text(
         angle = 90,
-        vjust = 0.5,
         hjust = 1,
-        size = 20
+        colour = "black",
+        size = text_size
       ),
-      axis.text.y = element_text(size = 20),
-      text = element_text(size = 20, face = "bold")
-    ) + scale_y_discrete(labels = clinical_bonito) + ggtitle("Latent Variables correlated with Covariables")
+      axis.title = element_blank(),
+      axis.text.y = element_text(colour = "black", size = text_size),
+      title = element_text(size = text_size * 2, color = "black"),
+      legend.key.size = unit(2, "cm"),
+      legend.title = element_text(size = text_size * 1.3),
+      legend.text = element_text(size = text_size)
+      
+      
+    ) +
+    labs(color = "Pearson\nCorrelation Coefficient")  + ggtitle("Latent Variables correlated with Covariables") + scale_y_discrete(labels = c("Factor 5", "Factor 4", "Factor 3", "Factor 2", "Factor 1")) #tiqueta única para la leyenda
+  
   ggsave(
     filename = file.path(dir_to_save, paste0(name_to_save, ".jpeg")),
-    plot = p,
-    height = 18,
-    width = 15
+    plot = p1,
+    height = altura,
+    width = ancho
   )
-  return(p)
+  return(p1)
 }
 
 
-fun_plot_dummy_preliminar <- function(modelo, dir_to_save, name_to_save) {
-  p1 <- plot_variance_explained(modelo, max_r2 = 15) + theme(axis.text.x =
-                                                               element_text(angle = -45, hjust = 0)) + scale_x_discrete(labels = c(
-                                                                 "metaboloma" = "Metabolome",
-                                                                 "metagenoma" = "Microbiome",
-                                                                 "ip" = "Proteins"
-                                                               ))
+fun_plot_dummy_preliminar <- function(modelo,
+                                      dir_to_save,
+                                      altura,
+                                      ancho,
+                                      size_var,
+                                      size_Axis) {
+  data.variance_explained <- get_variance_explained(modelo)
+  data.variance_explained <- as.data.frame(data.variance_explained$r2_per_factor$group1)
+  data.variance_explained$Factors <- rownames(data.variance_explained)
+  # Preparar datos para el heatmap (formato largo)
+  data.melt <- reshape2::melt(data.variance_explained)
   
-  p2 <- plot_variance_explained(modelo, plot_total = T)[[2]] + theme(axis.text.x =
-                                                                       element_text(angle = -45, hjust = 0)) + scale_x_discrete(labels = c(
-                                                                         "metaboloma" = "Metabolome",
-                                                                         "metagenoma" = "Microbiome",
-                                                                         "ip" = "Proteins"
-                                                                       ))
+  # Crear el heatmap
+  (
+    heatmap_plot <- ggplot(data.melt, aes(
+      x = variable, y = Factors, fill = value
+    )) +
+      geom_tile(color = "white") +
+      scale_fill_gradient(
+        low = "white",
+        high = "blue",
+        name = "Var. (%)"
+      ) +
+      geom_text(aes(label = round(value, 2)), size = size_var) +
+      labs(title = "Variance Explained by View and Factor", x = NULL, y = NULL) +
+      scale_x_discrete(labels = c("Metabolome", "Microbiome", "Proteins")) + theme(
+        axis.text.x = element_text(size = size_Axis, colour = "black"),
+        axis.text.y = element_text(size = size_Axis, colour = "black"),
+        legend.text = element_text(size = size_Axis),
+        plot.title = element_text(size = size_Axis +
+                                    5, face = "bold"),
+        legend.key.size = unit(2, "cm"),
+        legend.title = element_text(size =
+                                      size_Axis)
+      )
+  )
   
-  p3 <- ggarrange(p1, p2)
+  # Preparar datos para el barplot
+  bar_data <- data.melt %>%
+    group_by(variable) %>%
+    summarise(Total = sum(value))
+  levels(bar_data$variable) <- c("Metabolome", "Microbiome", "Proteins")
+  # Crear el barplot
+  p2 <- ggbarplot(bar_data,
+                  x = "variable",
+                  y = "Total",
+                  fill = "variable") +
+    scale_fill_manual(values = c(
+      Metabolome = "blue",
+      Microbiome = "yellow",
+      Proteins = "grey"
+    )) +
+    labs(title = "Variance Explained by View", x = "", y = "Var. (%)") +
+    theme(
+      legend.position = "none",
+      axis.text.x = element_text(size = size_Axis, colour = "black"),
+      plot.title = element_text(size = size_Axis + 5, face = "bold"),
+      axis.title.y  = element_text(size = size_Axis),
+      axis.text.y = element_text(size = size_Axis)
+    )
   
-  ggsave(filename = file.path(dir_to_save, paste0(name_to_save, ".jpeg")), plot = p3)
+  # Combinar ambos gráficos en una fila
+  combined_plot <- plot_grid(heatmap_plot,
+                             p2,
+                             ncol = 2,
+                             rel_widths = c(1, 1))  # Ajustar proporciones)
   
-  return(p3)
+  ggsave(
+    plot = combined_plot,
+    filename = file.path(dir_to_save, "graficos_preliminares.jpeg"),
+    width = ancho,
+    height = altura
+  )
   
-  
+  return(combined_plot)
 }
 
-plot_correlation <-  function(R, titulo) {
+
+
+plot_correlation <-  function(R, titulo, text_size) {
   # R <- R[,biomarcadores]
   # R <- grupo1
   cor_test_result <- psych::corr.test(R)
@@ -1023,25 +1196,30 @@ plot_correlation <-  function(R, titulo) {
     geom_tile() +
     geom_text(aes(label = Significance),
               color = "black",
-              size = 2.4) +  # Añadir asteriscos en las celdas significativas
+              size = 5) +  # Añadir asteriscos en las celdas significativas
     scale_fill_gradient2(
       low = "blue",
       mid = "white",
       high = "red",
       midpoint = 0,
       space = "Lab",
-      name = "Pearson \nCorrelation Coefficient",
-      limits = c(-1, 1)
+      name = "Pearson\nCorrelation\nCoefficient",
+      limits = c(-1, 1),
     ) +
     theme_minimal() +
     theme(
       axis.text.x = element_text(
         angle = 90,
-        vjust = 1,
+        vjust = 0.5,
         hjust = 1,
-        size = 10
+        size = text_size,
+        color = "black"
       ),
-      axis.text.y = element_text(size = 10)
+      axis.text.y = element_text(size = text_size, color = "black"),
+      legend.text = element_text(size = text_size, color = "black"),
+      legend.title = element_text(size = text_size * 1.5, color = "black"),
+      plot.title = element_text(size = 2 * text_size, color = "black"),
+      legend.key.size = unit(1, "cm")
     ) +
     labs(x = "", y = "") + ggtitle(titulo)
   
@@ -1051,24 +1229,29 @@ plot_correlation <-  function(R, titulo) {
   
 }
 
-plot_correlation_wrapper <- function(R, biomarcadores, dir_to_save) {
+plot_correlation_wrapper <- function(R,
+                                     biomarcadores,
+                                     dir_to_save,
+                                     altura,
+                                     anchura,
+                                     text_size) {
   R_biomarcadores <- R[, biomarcadores]
   R_obesidad <- R_biomarcadores[obesidad == "Obese", ]
   R_NoObesidad <- R_biomarcadores[obesidad == "No.Obese", ]
-  R_females <- R_biomarcadores[grupo == "Female", ]
-  R_males <- R_biomarcadores[grupo == "Male", ]
+  R_females <- R_biomarcadores[grupo == "Control.Women", ]
+  R_males <- R_biomarcadores[grupo == "Men", ]
   R_PCOS <- R_biomarcadores[grupo == "PCOS", ]
-  R_malenoob <- R_biomarcadores[grupo == "Male" &
+  R_malenoob <- R_biomarcadores[grupo == "Men" &
                                   obesidad == "Obese", ]
-  R_maleoob <- R_biomarcadores[grupo == "Male" &
+  R_maleoob <- R_biomarcadores[grupo == "Men" &
                                  obesidad == "No.Obese", ]
   R_PCOSob <- R_biomarcadores[grupo == "PCOS" &
                                 obesidad == "Obese", ]
   R_PCOSnoob <- R_biomarcadores[grupo == "PCOS" &
                                   obesidad == "No.Obese", ]
-  R_femaleOb <- R_biomarcadores[grupo == "Female" &
+  R_femaleOb <- R_biomarcadores[grupo == "Control.Women" &
                                   obesidad == "Obese", ]
-  R_femaleNoob <- R_biomarcadores[grupo == "Female" &
+  R_femaleNoob <- R_biomarcadores[grupo == "Control.Women" &
                                     obesidad == "No.Obese", ]
   
   
@@ -1105,7 +1288,7 @@ plot_correlation_wrapper <- function(R, biomarcadores, dir_to_save) {
   
   plots <-  vector("list", length = length(nombres))
   for (gof in 1:length(nombres)) {
-    plots[[gof]] <- plot_correlation(grupos_R[[gof]], titulo = nombres[gof])
+    plots[[gof]] <- plot_correlation(grupos_R[[gof]], titulo = nombres[gof], text_size = text_size)
     
     
   }
@@ -1114,8 +1297,8 @@ plot_correlation_wrapper <- function(R, biomarcadores, dir_to_save) {
     ggsave(
       plot = plots[[p]],
       filename = file.path(dir_to_save, paste0("Correlated_", nombres[p], ".jpeg")),
-      height = 10,
-      width = 10
+      height = altura,
+      width = anchura
     )
     
   }
@@ -1149,12 +1332,21 @@ wrapper_aov_PCs <- function(R, biomarcadores, escalado, componente) {
   return(to_return)
 }
 
-
-plot_PCA_downstream <- function(R,
-                                escalado,
-                                componente.,
-                                biomarcadores,
-                                dir_to_save) {
+downstream_pca <- function(R,
+                           biomarcadores,
+                           componente.,
+                           escalado,
+                           common_axes,
+                           label_y_Noobese,
+                           label_y_obese,
+                           label_females,
+                           label_PCOS,
+                           label_men,
+                           label_obesity,
+                           label_group,
+                           dir_to_save,
+                           altura,
+                           ancho) {
   res_anova_PC <- wrapper_aov_PCs(
     R = R,
     biomarcadores = biomarcadores,
@@ -1186,70 +1378,321 @@ plot_PCA_downstream <- function(R,
     "P-val (Interaction): = ",
     P_value_interaction
   )
-  colores <- c("darkgreen", "yellow4", "red4", "lightgreen", "wheat3", "red")
   
   PCs <- res_anova_PC$PCs
+  
   PCs_y <- paste0("PC", componente.)
-  p <- ggboxplot(
-    PCs,
+  
+  PCS_obese <- subset(PCs, Obesity == "Obese")
+  PCS_No_obese <- subset(PCs, Obesity == "No.Obese")
+  
+  
+  PCS_females <- subset(PCs, Group == "Control.Women")
+  PCS_males <- subset(PCs, Group == "Men")
+  PCS_PCOS <- subset(PCs, Group == "PCOS")
+  
+  
+  
+  
+  PCS_obesity.plot <- ggboxplot(
+    data = PCs,
+    x = "Obesity",
+    y = PCs_y,
+    color = "Obesity",
+    add = c("jitter", "mean")
+  ) +
+    scale_color_manual(values = c("No.Obese" = "lightblue", "Obese" = "blue")) +
+    ylab("") + xlab(PCs_y) +
+    theme(legend.position = "none") +
+    ylim(-common_axes, common_axes) +
+    theme(title = element_text(size = 10), axis.text = element_text(size = 10)) +
+    geom_pwc(
+      method = "t_test",
+      hide.ns = "p",
+      label = "p.signif" ,
+      y.position = label_obesity,
+      symnum.args  = list(
+        cutpoints = c(0, 0.0001, 0.001, 0.01, 0.05, 0.1, Inf),
+        symbols = c("****", "***", "**", "*", "\u2020", "ns")
+      )
+    ) + scale_x_discrete(labels = c("No Obese", "Obese"))
+  PCS_obesity.plot <- annotate_figure(PCS_obesity.plot, bottom = text_grob(
+    titulo,
+    hjust = 0,
+    x =
+      0.06,
+    size = 8
+  ))
+  
+  
+  my_comparisons <- list(c("Control.Women", "Men"),
+                         c("Control.Women", "PCOS"),
+                         c("Men", "PCOS"))
+  
+  
+  (
+    PCS_Group.plot <- ggboxplot(
+      data = PCs,
+      x = "Group",
+      y = PCs_y,
+      color = "Group",
+      add = c("jitter", "mean")
+    ) +
+      scale_color_manual(
+        values = c(
+          "Control.Women" = "green2",
+          "PCOS" = "orange",
+          "Men" = "red3"
+        )
+      ) +
+      ylab("") + xlab(PCs_y) +
+      theme(legend.position = "none") +
+      ylim(-common_axes, common_axes) +
+      theme(title = element_text(size = 10), axis.text = element_text(size = 10)) +
+      geom_pwc(
+        method = "t_test",
+        hide.ns = "p",
+        label = "p.signif" ,
+        y.position = label_group,
+        symnum.args  = list(
+          cutpoints = c(0, 0.0001, 0.001, 0.01, 0.05, 0.1, Inf),
+          symbols = c("****", "***", "**", "*", "\u2020", "ns")
+        )
+      ) + scale_x_discrete(labels = c("Control Women", "PCOS", "Men"))
+  )
+  
+  PCS_Group.plot <- annotate_figure(PCS_Group.plot, bottom = text_grob(
+    titulo,
+    hjust = 0,
+    x =
+      0.06,
+    size = 8
+  ))
+  
+  
+  # Crear el gráfico para Obese
+  PCS_obese.plot <- ggboxplot(
+    data = PCS_obese,
     x = "Group",
     y = PCs_y,
     color = "Group",
-    add = c("jitter", "mean"),
-    facet.by = "Obesity",
-    palette = colores,
-  )
+    add = c("jitter", "mean")
+  ) +
+    scale_color_manual(values = c(
+      "Control.Women" = "chartreuse4",
+      "PCOS" = "darkorange2",
+      "Men" = "darkred"
+    )) +
+    ylab("") + xlab("") +
+    theme(legend.position = "none") +
+    ylim(-common_axes, common_axes) +
+    ggtitle("Obese") +
+    theme(title = element_text(size = 10), axis.text = element_text(size = 10)) +
+    geom_pwc(
+      method = "t_test",
+      hide.ns = "p",
+      label = "p.signif" ,
+      y.position = label_y_obese,
+      symnum.args  = list(
+        cutpoints = c(0, 0.0001, 0.001, 0.01, 0.05, 0.1, Inf),
+        symbols = c("****", "***", "**", "*", "\u2020", "ns")
+      )
+    ) + scale_x_discrete(labels = c("Control Women", "PCOS", "Men"))
   
-  my_comparisons <- list(c("Female", "Male"), c("Female", "PCOS"), c("Male", "PCOS"))
-  
-  p <- p + stat_compare_means(
-    comparisons = my_comparisons,
-    method = "t.test",
-    hide.ns = T,
-    ref.group = "Female",
-    paired = F
-  ) + theme(
-    legend.position = "none",
-    title = element_text(size = 10),
-    axis.text = element_text(size = 10)
-  ) +  ggtitle(titulo) + xlab("")  + coord_cartesian(ylim = c(min(PCs[, componente.]), 2 *
-                                                                max(PCs[, componente.])))
-  
-  p_group_by_obesity <- p
-  
-  
-  p <- ggboxplot(
-    PCs,
-    x = "Obesity",
+  # Crear el gráfico para No Obese
+  PCS_No_obese.plot <- ggboxplot(
+    data = PCS_No_obese,
+    x = "Group",
     y = PCs_y,
     color = "Group",
-    add = c("jitter", "mean"),
-    facet.by = "Group",
-    palette = colores
+    add = c("jitter", "mean")
+  ) +
+    scale_color_manual(values = c(
+      "Control.Women" = "chartreuse",
+      "PCOS" = "gold3",
+      "Men" = "red"
+    )) +
+    xlab("") +
+    theme(legend.position = "none") +
+    ylim(-common_axes, common_axes) +
+    ggtitle("No Obese") +
+    theme(title = element_text(size = 10), axis.text = element_text(size = 10)) +
+    geom_pwc(
+      method = "t_test",
+      hide.ns = "p",
+      label = "p.signif" ,
+      y.position = label_y_Noobese,
+      symnum.args  = list(
+        cutpoints = c(0, 0.0001, 0.001, 0.01, 0.05, 0.1, Inf),
+        symbols = c("****", "***", "**", "*", "\u2020", "ns")
+      )
+    )  + scale_x_discrete(labels = c("Control Women", "PCOS", "Men"))
+  
+  
+  # Combinar ambos gráficos
+  combined_plot_By_Group <- ggarrange(PCS_No_obese.plot, PCS_obese.plot)
+  
+  combined_plot_By_Group <- annotate_figure(combined_plot_By_Group,
+                                            bottom = text_grob(
+                                              titulo,
+                                              hjust = 0,
+                                              x =
+                                                0.06,
+                                              size = 8
+                                            ))
+  
+  # Crear el gráfico con stat_compare_means
+  females_plot <- ggplot(PCS_females, aes(
+    x = Obesity,
+    y = !!sym(PCs_y),
+    color = Obesity
+  )) +
+    geom_boxplot() +   geom_jitter(width = 0.2, size = 1.5) +  # Añadir jitter
+    
+    geom_pwc(
+      method = "t_test",
+      hide.ns = "p",
+      label = "p.signif" ,
+      y.position = label_females,
+      symnum.args  = list(
+        cutpoints = c(0, 0.0001, 0.001, 0.01, 0.05, 0.1, Inf),
+        symbols = c("****", "***", "**", "*", "\u2020", "ns")
+      )
+    )  + scale_color_manual(values = c(
+      "No.Obese" = "chartreuse",
+      "Obese" = "chartreuse4"
+    )) +
+    labs(title = "Females", x = "", y = PCs_y) + theme(
+      panel.background = element_rect(fill = "white", color = NA),
+      # Fondo blanco
+      panel.grid = element_blank(),
+      # Sin líneas de rejilla
+      axis.line = element_line(color = "black"),
+      # Ejes en negro
+      axis.ticks = element_line(color = "black"),
+      # Ticks en negro
+      axis.text = element_text(color = "black"),
+      # Texto de ejes en negro
+      plot.background = element_rect(fill = "white", color = NA),
+      legend.position = "none"# Fondo de toda la figura en blanco
+    ) + ylim(-common_axes, common_axes) + scale_x_discrete(labels = c("No Obese", "Obese"))
+  # Mostrar el gráfico
+  
+  # Mostrar el gráfico
+  
+  # Crear el gráfico con stat_compare_means
+  PCOS_plot <- ggplot(PCS_PCOS, aes(
+    x = Obesity,
+    y = !!sym(PCs_y),
+    color = Obesity
+  )) +
+    geom_boxplot() + geom_jitter(width = 0.2, size = 1.5) +
+    geom_pwc(
+      method = "t_test",
+      hide.ns = "p",
+      label = "p.signif" ,
+      y.position = label_PCOS,
+      symnum.args  = list(
+        cutpoints = c(0, 0.0001, 0.001, 0.01, 0.05, 0.1, Inf),
+        symbols = c("****", "***", "**", "*", "\u2020", "ns")
+      )
+    )  +
+    scale_color_manual(values = c(
+      "No.Obese" = "gold3",
+      "Obese" = "darkorange2"
+    )) + # Colores personalizados) +
+    labs(title = "PCOS", x = "", y = "") + theme(
+      panel.background = element_rect(fill = "white", color = NA),
+      # Fondo blanco
+      panel.grid = element_blank(),
+      # Sin líneas de rejilla
+      axis.line = element_line(color = "black"),
+      # Ejes en negro
+      axis.ticks = element_line(color = "black"),
+      # Ticks en negro
+      axis.text = element_text(color = "black"),
+      # Texto de ejes en negro
+      plot.background = element_rect(fill = "white", color = NA),
+      legend.position = "none"# Fondo de toda la figura en blanco
+    ) + ylim(-common_axes, common_axes) + scale_x_discrete(labels = c("No Obese", "Obese"))
+  # Mostrar el gráfico
+  
+  # Mostrar el gráfico  # Crear el gráfico con stat_compare_means
+  MEN_plot <- ggplot(PCS_males, aes(
+    x = Obesity,
+    y = !!sym(PCs_y),
+    color = Obesity
+  )) +
+    geom_boxplot() + geom_jitter(width = 0.2, size = 1.5) +
+    geom_pwc(
+      method = "t_test",
+      hide.ns = "p",
+      label = "p.signif" ,
+      y.position = label_men,
+      symnum.args  = list(
+        cutpoints = c(0, 0.0001, 0.001, 0.01, 0.05, 0.1, Inf),
+        symbols = c("****", "***", "**", "*", "\u2020", "ns")
+      )
+    )  +
+    scale_color_manual(values = c("No.Obese" = "red", "Obese" = "darkred")) + # Colores personalizados) +
+    labs(title = "Men", x = "", y = "") + theme(
+      panel.background = element_rect(fill = "white", color = NA),
+      # Fondo blanco
+      panel.grid = element_blank(),
+      # Sin líneas de rejilla
+      axis.line = element_line(color = "black"),
+      # Ejes en negro
+      axis.ticks = element_line(color = "black"),
+      # Ticks en negro
+      axis.text = element_text(color = "black"),
+      # Texto de ejes en negro
+      plot.background = element_rect(fill = "white", color = NA),
+      legend.position = "none"# Fondo de toda la figura en blanco
+    ) + ylim(-common_axes, common_axes) + scale_x_discrete(labels = c("No Obese", "Obese"))
+  # Mostrar el gráfico
+  # Mostrar el gráfic
+  
+  plot_by_obesity <- ggarrange(females_plot,
+                               PCOS_plot,
+                               MEN_plot,
+                               ncol = 3,
+                               nrow = 1)
+  
+  final_plot <- annotate_figure(plot_by_obesity, bottom = text_grob(
+    titulo,
+    hjust = 0,
+    x =
+      0.06,
+    size = 8
+  ))
+  
+  ggsave(
+    plot = combined_plot_By_Group,
+    filename = file.path(dir_to_save, paste0("Group_by_Obesity_", PCs_y, ".jpeg")),
+    height = altura,
+    width = ancho
+  )
+  ggsave(
+    plot = final_plot,
+    filename = file.path(dir_to_save, paste0("Obesity_by_Group", PCs_y, ".jpeg")),
+    height = altura,
+    width = ancho
+  )
+  ggsave(
+    plot = PCS_obesity.plot,
+    filename = file.path(dir_to_save, paste0("Obesity_plot", PCs_y, ".jpeg")),
+    height = altura,
+    width = ancho
+  )
+  ggsave(
+    plot = PCS_Group.plot,
+    filename = file.path(dir_to_save, paste0("Group_plot", PCs_y, ".jpeg")),
+    height = altura,
+    width = ancho
   )
   
-  my_comparisons <- list(c("No.Obese", "Obese"))
-  p <- p + stat_compare_means(comparisons = my_comparisons,
-                              method = "t.test",
-                              hide.ns = T)  + ggtitle(titulo) + theme(
-                                legend.position = "none",
-                                title = element_text(size = 10),
-                                axis.text = element_text(size = 10)
-                              ) + coord_cartesian(ylim = c(min(PCs[, componente.]), 1.5 *
-                                                             max(PCs[, componente.])))
-  
-  p_obesity_by_group <- p
-  
-  
-  ggsave(plot = p_group_by_obesity, filename = file.path(dir_to_save, paste0("Group_by_Obesity_", PCs_y, ".jpeg")))
-  ggsave(plot = p_group_by_obesity, filename = file.path(dir_to_save, paste0("Obesity_by_Group", PCs_y, ".jpeg")))
-  
-  return(
-    list(
-      plot_group_by_obesity = p_group_by_obesity,
-      plot_obesity_by_group = p_obesity_by_group
-    )
-  )
+  return_plots <- list(group = combined_plot_By_Group, obesity = final_plot)
+  return(return_plots)
 }
 
 fun_wraper_downstream_PCA <- function(R, biomarcadores, directorios_lista) {
@@ -1293,14 +1736,14 @@ fun_wraper_downstream_PCA <- function(R, biomarcadores, directorios_lista) {
 
 dummy_fun_contrasts <- function(R, grupo, obesidad) {
   grupo_ <- grupo
-  levels(grupo_) <- c("Control Women", "PCOS", "Men")
+  # levels(grupo_) <- c("Control Women", "PCOS", "Men")
   obesidad_ <- obesidad
   
   
   
   w_ctrl.group <- (grupo_ != "PCOS")
   w_females.group <- (grupo_ != "Men")
-  w_hermas.group <- (grupo_ != "Control Women")
+  w_hermas.group <- (grupo_ != "Control.Women")
   
   ctrl.group <- droplevels(grupo_[w_ctrl.group])
   females.group <- droplevels(grupo_[w_females.group])
@@ -1313,7 +1756,7 @@ dummy_fun_contrasts <- function(R, grupo, obesidad) {
   
   w_ctrl.noob <- (grupo_ != "PCOS") & (obesidad == "No.Obese")
   w_females.noob <- (grupo_ != "Men") & (obesidad == "No.Obese")
-  w_hermas.noob <- (grupo_ != "Control Women") &
+  w_hermas.noob <- (grupo_ != "Control.Women") &
     (obesidad == "No.Obese")
   
   
@@ -1328,7 +1771,7 @@ dummy_fun_contrasts <- function(R, grupo, obesidad) {
   
   w_ctrl.ob <- (grupo_ != "PCOS") & (obesidad == "Obese")
   w_females.ob <- (grupo_ != "Men") & (obesidad == "Obese")
-  w_hermas.ob <- (grupo_ != "Control Women") & (obesidad == "Obese")
+  w_hermas.ob <- (grupo_ != "Control.Women") & (obesidad == "Obese")
   
   ctrl.ob <- droplevels(grupo_[w_ctrl.ob])
   females.ob <-  droplevels(grupo_[w_females.ob])
@@ -1339,7 +1782,7 @@ dummy_fun_contrasts <- function(R, grupo, obesidad) {
   R.hermas.ob <- R[w_hermas.ob, ]
   
   w_males <- which(grupo_ == "Men")
-  w_females <- which(grupo_ == "Control Women")
+  w_females <- which(grupo_ == "Control.Women")
   w_pcos <- which(grupo_ == "PCOS")
   
   R.males <- R[w_males, ]
@@ -1408,7 +1851,9 @@ plot_contributions <- function(R,
                                referencia,
                                indice_gof,
                                factor_gof,
-                               text.size) {
+                               text.size,
+                               common_axes) {
+  
   prcomp_obj <- prcomp(R, scale. = escalado)
   
   
@@ -1458,30 +1903,96 @@ plot_contributions <- function(R,
     # Rotate vertically x axis texts
     ylab = "",
     legend.title = "Omic",
-    rotate = TRUE,
-    ggtheme = theme_minimal(base_size = 13)
-  ) + xlab("") + ylab("Pearson Correlation Coefficient")
-  
-  
+    rotate = TRUE
+  ) + xlab("") + ylab("Pearson Correlation Coefficient") + theme(
+    axis.text.x = element_text(size = text.size * 1.2),
+    title = element_text(size = text.size *
+                           1.5),
+    axis.text.y = element_text(size = text.size),
+    panel.background = element_rect(fill = "white", color = NA),
+    # Fondo blanco del panel
+    plot.background = element_rect(fill = "white", color = NA),
+    # Fondo blanco del gráfico
+    panel.grid = element_blank(),
+    # Eliminar líneas de la rejilla
+    axis.line = element_line(color = "black"),
+    # Ejes en negro
+    axis.ticks = element_line(color = "black"),
+    # Ticks en negro
+    axis.text = element_text(color = "black"),
+    # Texto de los ejes en negro
+    axis.title = element_text(color = "black"),
+    legend.key.size = unit(1, "cm"),
+    legend.text = element_text(size = text.size * 1.3),
+    legend.title = element_blank(),
+    axis.title.y = element_text(size = text.size),
+    # Títulos de los ejes en negro,
+    legend.position = "right"
+    
+    
+  )
   
   
   dfgg <- data.frame(sub_scores , GOF = factor_gof)
   # componente<-"PC1"
   # comparisons <- list(c("Female","Male"))
   
+  
+  
   componente_ <- paste0("PC", componente)
   
-  p_score <- ggboxplot(
-    dfgg,
-    x = "GOF",
-    y = componente_,
-    fill = "GOF",
-    width = 0.5,
-    ggtheme = theme(text  = element_text(size = text.size))
-  ) + scale_fill_manual(values = colores) + stat_compare_means(ref.group = referencia,
-                                                               method = "t.test",
-                                                               size = 5) +  xlab("") + ggtitle(Titulo) + theme(legend.position = "none",
-                                                                                                               axis.text.x = element_text(size = text.size))
+  niveles <- levels(dfgg$GOF)
+  nivel_no_ref <- niveles[niveles != referencia]
+  print(nivel_no_ref)
+  
+  my_comparisons = list(c(nivel_no_ref, referencia))
+  labels_Aux_ <- c(nivel_no_ref, referencia)
+  labels_Aux <- gsub("\\.", " ", labels_Aux_)
+  
+  labels_box <- setNames(labels_Aux, labels_Aux_)
+  colores_ <- setNames(colores, names(colores))
+
+  
+  p_score <- ggplot(dfgg, aes(
+    x = GOF,
+    y = !!sym(componente_),
+    color = GOF
+  )) +
+    geom_boxplot() + geom_jitter(width = 0.2, size = 1.5) +
+    geom_pwc(
+      method = "t_test",
+      hide.ns = "p",
+      label = "p.signif" ,
+      y.position = 15,
+      symnum.args  = list(
+        cutpoints = c(0, 0.0001, 0.001, 0.01, 0.05, 0.1, Inf),
+        symbols = c("****", "***", "**", "*", "\u2020", "ns")
+      )
+    ) +  xlab("") + ggtitle(Titulo) + theme(
+    legend.position = "none",
+    axis.text.x = element_text(size = text.size * 1.2),
+    title = element_text(size = text.size *
+                           1.5),
+    axis.text.y = element_text(size = text.size),
+    panel.background = element_rect(fill = "white", color = NA),
+    # Fondo blanco del panel
+    plot.background = element_rect(fill = "white", color = NA),
+    # Fondo blanco del gráfico
+    panel.grid = element_blank(),
+    # Eliminar líneas de la rejilla
+    axis.line = element_line(color = "black"),
+    # Ejes en negro
+    axis.ticks = element_line(color = "black"),
+    # Ticks en negro
+    axis.text = element_text(color = "black"),
+    # Texto de los ejes en negro
+    axis.title = element_text(color = "black"),
+    legend.key.size = unit(1, "cm"),
+    legend.text = element_text(size = text.size * 1.3),
+    legend.title = element_blank()# Títulos de los ejes en negro
+    
+  ) + scale_color_manual(values = colores_) + scale_x_discrete(labels = labels_box) + ylim(c(-common_axes,common_axes))
+  
   
   
   
@@ -1498,14 +2009,14 @@ wrapper_plot_contribuciones <- function(modelo,
                                         escalado,
                                         dir_to_save,
                                         original,
+                                        common_axes,
+                                        text_size,
+                                        altura,
+                                        ancho,
                                         grupo = grupo,
                                         obesidad = obesidad) {
-  # biomarcadores <- biomarcadores_mon
-  # escalado <- T
-  # original <- F
-  #
-  
-  
+
+
   
   #Score Plot PC1:\nObese vs No Obese
   dum_contrastes <- dummy_fun_contrasts(R, grupo, obesidad)
@@ -1535,35 +2046,29 @@ wrapper_plot_contribuciones <- function(modelo,
     
   } else{
     R <-
-      bind_cols(as.data.frame(scale(t(
-        Reduce(
-          "rbind",
-          list(
-            modelo@data$metaboloma[[1]],
-            modelo@data$metagenoma[[1]],
-            modelo@data$ip[[1]]
-          )
-        )
-      ))))
+      get_senal_original(modelo)[, biomarcadores]
     
   }
   size_barplot <- 10
+  
+  
   obesidad_PC1 <- plot_contributions(
     R = R,
     escalado = escalado,
     componente = 1,
     Titulo = "Score Plot PC1:\nObese vs No Obese",
-    colores =  c("No.Obese" = "blue", "Obese" = "lightblue"),
+    colores =  c("No.Obese" = "lightblue", "Obese" = "blue"),
     referencia = "No.Obese",
     indice_gof =  1:nrow(R),
     factor_gof = obesidad,
-    text.size = 10
+    text.size = text_size,
+    common_axes = common_axes
   )
   ggsave(
     plot = obesidad_PC1,
     filename = file.path(dir_to_save, "PC1_Obese_vs_No_Obese.jpeg"),
-    height = 13,
-    width = 11
+    height = altura,
+    width = ancho
   )
   
   obesidad_PC2 <- plot_contributions(
@@ -1571,30 +2076,39 @@ wrapper_plot_contribuciones <- function(modelo,
     escalado = escalado,
     componente = 2,
     Titulo = "Score Plot PC2:\nObese vs No Obese",
-    colores =  c("No.Obese" = "blue", "Obese" = "lightblue"),
+    colores =  c("No.Obese" = "lightblue", "Obese" = "blue"),
     referencia = "No.Obese",
     indice_gof =  1:nrow(R),
     factor_gof = obesidad,
-    text.size = 10
+    text.size = text_size,
+    common_axes = common_axes
   )
   ggsave(
     plot = obesidad_PC2,
     filename = file.path(dir_to_save, "PC2_Obese_vs_No_Obese.jpeg"),
-    height = 13,
-    width = 11
+    height = altura,
+    width = ancho
   )
+  # colores <- ifelse(plotdf$subjects == "Control Women: No Obese", "chartreuse", NA)
+  # colores <- ifelse(plotdf$subjects == "PCOS: No Obese", "gold3", colores)
+  # colores <- ifelse(plotdf$subjects == "Men: No Obese", "red", colores)
+  # colores <- ifelse(plotdf$subjects == "Control Women: Obese" ,
+  #                   "chartreuse4",
+  #                   colores)
+  # colores <- ifelse(plotdf$subjects == "PCOS: Obese", "darkorange2", colores)
+  # colores <- ifelse(plotdf$subjects == "Men: Obese", "darkred", colores)
   
   
   referencias <- vector("list", length = length(names(dum_contrastes$factores)))
   names(referencias) <- names(dum_contrastes$factores)
-  referencias$control_group <- "Control Women"
-  referencias$females_group <- "Control Women"
+  referencias$control_group <- "Control.Women"
+  referencias$females_group <- "Control.Women"
   referencias$femalespcos_group <- "Men"
-  referencias$control_noob <- "Control Women"
-  referencias$females_noob <- "Control Women"
+  referencias$control_noob <- "Control.Women"
+  referencias$females_noob <- "Control.Women"
   referencias$hermas_noob <- "Men"
-  referencias$control_ob <- "Control Women"
-  referencias$females_ob <- "Control Women"
+  referencias$control_ob <- "Control.Women"
+  referencias$females_ob <- "Control.Women"
   referencias$femalespcos_ob <- "Men"
   referencias$females <- "No.Obese"
   referencias$males <- "No.Obese"
@@ -1606,28 +2120,30 @@ wrapper_plot_contribuciones <- function(modelo,
   colores <- vector("list", length = length(names(dum_contrastes$factores)))
   names(colores) <- names(dum_contrastes$factores)
   
-  colores$control_group <- c("Control Women" = "green", "Men" = "red3")
-  colores$females_group <- c("Control Women" = "green", "PCOS" = "pink")
-  colores$femalespcos_group <- c("Men" = "red3", "PCOS" = "pink")
+  colores$control_group <- c("Control.Women" = "green2", "Men" = "red3")
+  colores$females_group <- c("Control.Women" = "green2",
+                             "PCOS" = "orange")
+  colores$femalespcos_group <- c("Men" = "red3", "PCOS" = "orange")
   
-  colores$control_noob <- c("Control Women" = "darkgreen",
-                            "Men" = "red4")
-  colores$females_noob <- c("Control Women" = "darkgreen",
-                            "PCOS" = "yellow4")
-  colores$hermas_noob <- c("Men" = "red4", "PCOS" = "yellow4")
+  colores$control_noob <- c("Control.Women" = "chartreuse",
+                            "Men" = "red")
+  colores$females_noob <- c("Control.Women" = "chartreuse",
+                            "PCOS" = "gold3")
+  colores$hermas_noob <- c("Men" = "red", "PCOS" = "gold3")
   
   
-  colores$control_ob <- c("Control Women" = "lightgreen",
-                          "Men" = "red")
-  colores$females_ob <- c("Control Women" = "lightgreen",
-                          "PCOS" = "wheat3")
-  colores$femalespcos_ob <- c("Men" = "red", "PCOS" = "wheat3")
+  colores$control_ob <- c("Control.Women" = "chartreuse4",
+                          "Men" = "darkred")
+  colores$females_ob <- c("Control.Women" = "chartreuse4",
+                          "PCOS" = "darkorange2")
+  colores$femalespcos_ob <- c("Men" = "darkred", "PCOS" = "darkorange2")
   
-  colores$males <- c("No.Obese" = "red4", "Obese" = "red")
-  colores$females <-  c("No.Obese" = "darkgreen",
-                        "Obese" = "lightgreen")
+  colores$males <- c("No.Obese" = "red", "Obese" = "darkred")
+  colores$females <-  c("No.Obese" = "chartreuse",
+                        "Obese" = "chartreuse4")
   
-  colores$pcos <-  c("No.Obese" = "yellow4", "Obese" = "wheat3")
+  colores$pcos <-  c("No.Obese" = "gold3",
+                     "Obese" = "darkorange2")
   
   plots_PC1s <- vector("list", length = length(names(dum_contrastes$factores)))
   names(plots_PC1s) <- names(dum_contrastes$factores)
@@ -1644,7 +2160,8 @@ wrapper_plot_contribuciones <- function(modelo,
       referencia = referencias[[pl]],
       indice_gof = dum_contrastes$whiches[[pl]],
       factor_gof = dum_contrastes$factores[[pl]],
-      text.size = 10
+      text.size = text_size,
+      common_axes = common_axes
     )
     plot_PC2 <- plot_contributions(
       R = R,
@@ -1655,7 +2172,8 @@ wrapper_plot_contribuciones <- function(modelo,
       referencia =  referencias[[pl]],
       indice_gof = dum_contrastes$whiches[[pl]],
       factor_gof = dum_contrastes$factores[[pl]],
-      text.size = 10
+      text.size = text_size,
+      common_axes = common_axes
     )
     plots_PC1s[[pl]] <- plot_PC1
     plots_PC2s[[pl]] <- plot_PC2
@@ -1693,15 +2211,15 @@ wrapper_plot_contribuciones <- function(modelo,
     ggsave(
       plot = plots_PC1s[[pl]],
       filename = file.path(dir_to_save_pl_PC1, paste0(titulos_to_Save[pl], ".jpeg")),
-      height = 13,
-      width = 11
+      height = altura,
+      width = ancho
     )
     
     ggsave(
       plot = plots_PC2s[[pl]],
       filename = file.path(dir_to_save_pl_PC2, paste0(titulos_to_Save[pl], ".jpeg")),
-      height = 13,
-      width = 11
+      height = altura,
+      width = ancho
     )
     
   }
@@ -1709,12 +2227,15 @@ wrapper_plot_contribuciones <- function(modelo,
   return(list(PC1 = plots_PC1s, PC2 = plots_PC2s))
 }
 
-###===Cargamos modelo ====
-modelos <- lapply(list.files("./modelos/14_10_24_With_OUTLIERS/", full.names = T),
-                  load_model)
-modelo <- MOFA2::select_model(modelos, plot = T)
-senal_original <-
-  bind_cols(as.data.frame(scale(t(
+dir_create <- function(path) {
+  if (!dir.exists(path)) {
+    dir.create(path, recursive = T)
+  }
+  
+}
+
+get_senal_original <- function(modelo) {
+  so <- bind_cols(as.data.frame(scale(t(
     Reduce(
       "rbind",
       list(
@@ -1724,6 +2245,227 @@ senal_original <-
       )
     )
   ))))
+  return(so)
+}
+
+
+plot_contributions_general <- function(R,
+                                       biomarcadores,
+                                       escalado,
+                                       componente,
+                                       text_size,
+                                       dir_to_save,
+                                       altura,
+                                       ancho) {
+  R <- R[, biomarcadores]
+  prcomp_obj <- prcomp(R, scale. = escalado)
+  
+  
+  scores <- prcomp_obj$x
+  
+  sub_scores <- scores
+  
+  R_sub <- R
+  robj <- apply((R_sub), 2, function(x)
+    corr.test(x, sub_scores[, componente]))
+  r <- unlist(lapply(robj, function(x)
+    x$r))
+  
+  
+  toplot <- data.frame(r = r, names = names(r))
+  toplot$omic <- ifelse(toplot$names %in% rownames(modelo@data$metaboloma$group1),
+                        "Metabolome",
+                        NA)
+  toplot$omic <- ifelse(
+    toplot$names %in% rownames(modelo@data$metagenoma$group1),
+    "Microbiome",
+    toplot$omic
+  )
+  toplot$omic <- ifelse(toplot$names %in% rownames(modelo@data$ip$group1),
+                        "Proteins",
+                        toplot$omic)
+  toplot$omic <- as.factor(toplot$omic)
+  
+  
+  
+  
+  
+  p_contrib_cor <- ggbarplot(
+    toplot,
+    x = "names",
+    y = "r",
+    fill = "omic",
+    # change fill color by mpg_level
+    color = "white",
+    # Set bar border colors to white
+    palette = "jco",
+    # jco journal color palett. see ?ggpar
+    sort.val = "desc",
+    # Sort the value in descending order
+    sort.by.groups = FALSE,
+    # Don't sort inside each group
+    x.text.angle = 90,
+    # Rotate vertically x axis texts
+    ylab = "",
+    legend.title = "Omic",
+    rotate = TRUE
+  ) + xlab("") + ylab("Pearson Correlation Coefficient") + theme(
+    axis.text.x = element_text(size = text_size * 1.2),
+    title = element_text(size = text_size *
+                           1.5),
+    axis.text.y = element_text(size = text_size),
+    panel.background = element_rect(fill = "white", color = NA),
+    # Fondo blanco del panel
+    plot.background = element_rect(fill = "white", color = NA),
+    # Fondo blanco del gráfico
+    panel.grid = element_blank(),
+    # Eliminar líneas de la rejilla
+    axis.line = element_line(color = "black"),
+    # Ejes en negro
+    axis.ticks = element_line(color = "black"),
+    # Ticks en negro
+    axis.text = element_text(color = "black"),
+    # Texto de los ejes en negro
+    axis.title = element_text(color = "black"),
+    legend.key.size = unit(1, "cm"),
+    legend.text = element_text(size = text_size * 1.3),
+    legend.title = element_blank(),
+    axis.title.y = element_text(size = text_size),
+    # Títulos de los ejes en negro,
+    legend.position = "right"
+    
+  )+ ggtitle(paste("Principal Component", componente))
+  
+  contribuciones <- factoextra::fviz_contrib(prcomp_obj, choice = "var", axes = componente)
+  dd <- factoextra::facto_summarize(prcomp_obj,
+                                    element = "var",
+                                    result = "contrib",
+                                    axes = componente)
+  contrib <- dd$contrib
+  names(contrib) <- rownames(dd)
+  
+  # expected Average contribution
+  theo_contrib <- 100 / length(contrib)
+  
+  datos_Contrib <- contribuciones$data[order(contribuciones$data$contrib, decreasing = T), ]
+  colnames(datos_Contrib)[1] <- "names"
+  contribuciones_to_plot <- inner_join(toplot, datos_Contrib, by = "names")
+  
+  contribuciones_to_plot <- contribuciones_to_plot[order(contribuciones_to_plot$contrib, decreasing = T), ]
+  
+  
+  p_contrib <- ggbarplot(
+    contribuciones_to_plot,
+    x = "names",
+    y = "contrib",
+    fill = "omic",
+    # change fill color by mpg_level
+    color = "white",
+    # Set bar border colors to white
+    palette = "jco",
+    # jco journal color palett. see ?ggpar
+    sort.val = "desc",
+    # Sort the value in descending order
+    sort.by.groups = FALSE,
+    # Don't sort inside each group
+    x.text.angle = 90,
+    # Rotate vertically x axis texts
+    ylab = "",
+    legend.title = "Omic",
+    rotate = F
+  ) + xlab("") + ylab("Contributions (%)") + theme(
+    axis.text.x = element_text(size = text_size * 1.2),
+    title = element_text(size = text_size *
+                           1.5),
+    axis.text.y = element_text(size = text_size),
+    panel.background = element_rect(fill = "white", color = NA),
+    # Fondo blanco del panel
+    plot.background = element_rect(fill = "white", color = NA),
+    # Fondo blanco del gráfico
+    panel.grid = element_blank(),
+    # Eliminar líneas de la rejilla
+    axis.line = element_line(color = "black"),
+    # Ejes en negro
+    axis.ticks = element_line(color = "black"),
+    # Ticks en negro
+    axis.text = element_text(color = "black"),
+    # Texto de los ejes en negro
+    axis.title = element_text(color = "black"),
+    legend.key.size = unit(1, "cm"),
+    legend.text = element_text(size = text_size * 1.3),
+    legend.title = element_blank(),
+    axis.title.y = element_text(size = text_size),
+    # Títulos de los ejes en negro,
+    legend.position = "right"
+    
+  ) + ggtitle(paste("Principal Component", componente)) +    geom_hline(yintercept = theo_contrib,
+                                                                        linetype = 2,
+                                                                        color = "red")
+  
+  
+  
+  return_plots <- list(contribuciones = p_contrib,
+                       correlations_contrib = p_contrib_cor)
+  
+  ggsave(
+    filename = file.path(
+      dir_to_save,
+      paste0("Contribution_plot_PC", componente, "_.jpeg")
+    ),
+    plot = p_contrib,
+    height = altura / 2,
+    width = ancho*1.5
+  )
+  
+  ggsave(
+    filename = file.path(
+      dir_to_save,
+      paste0("Contribution_correlated_plot_PC", componente, "_.jpeg")
+    ),
+    plot = p_contrib_cor,
+    height = altura,
+    width = ancho
+  )
+  
+  return(return_plots)
+}
+###===Cargamos modelo ====
+modelos <- lapply(list.files("./modelos/14_10_24_With_OUTLIERS/", full.names = T),
+                  load_model)
+modelo <- MOFA2::select_model(modelos, plot = T)
+senal_original <- get_senal_original(modelo)
+
+
+get_clinical <- function(modelo) {
+  feat_fuera <- c("group", "sample")
+  idx <- sapply(feat_fuera, function(x)
+    grep(x, colnames(modelo@samples_metadata)))
+  
+  ## reorder clinical variables
+  factores.df <- as.data.frame(MOFA2::get_expectations(modelo, "Z", as.data.frame = F)[[1]])
+  
+  matrix1 <- modelo@samples_metadata[, -idx]
+  matrix1 <- as.data.frame(matrix1)
+  matrix1 <- matrix1[, c(
+    "BMI",
+    "Waist.circumference",
+    "Waist.to.Hip.Ratio",
+    "Total.Testosterone",
+    "Free.Testosterone",
+    "Total.Estradiol",
+    "Free.Estradiol",
+    "SHBG",
+    "Glucose",
+    "Insulin",
+    "HOMA.IR",
+    "ISI",
+    "Triglycerides",
+    "Cholesterol",
+    "HDL.Cholesterol",
+    "LDL.Cholesterol"
+  )]
+  return(matrix1)
+}
 
 senal_reconstruida <- reconstruccion(modelo)
 
@@ -1733,45 +2475,66 @@ senal_reconstruida <- reconstruccion(modelo)
 
 ###===Graficos preliminares====
 
-directorio <- "./resultados/14-12-24"
+directorio <- "./resultados/30_1-12-24"
 
-if (!dir.exists(directorio)) {
-  dir.create(directorio, recursive = T)
-  
-}
+
 
 directorio_preliminar <- file.path(directorio, "plots_preliminares")
-if (!dir.exists(directorio_preliminar)) {
-  dir.create(directorio_preliminar)
-}
-plot_preliminar <- fun_plot_dummy_preliminar(modelo, dir_to_save = directorio_preliminar, name_to_save = "graficos_preliminares")
+
+dir_create(directorio_preliminar)
+
+plot_preliminar <- fun_plot_dummy_preliminar(
+  modelo,
+  dir_to_save = directorio_preliminar,
+  altura = 15,
+  ancho = 20,
+  size_var = 8,
+  size_Axis = 18
+)
+
+# Mostrar el gráfico combinado
+# Mostrar el gráfico combinado
 ###====factores latentes=====
 
 directorio_latentes <- file.path(directorio, "latent_variables_plots")
-if (!dir.exists(directorio_latentes)) {
-  dir.create(directorio_latentes)
-}
+dir_create(directorio_latentes)
+
 ####====factores contrastes univariate=====
 
 factores.df <- as.data.frame(MOFA2::get_expectations(modelo, "Z", as.data.frame = F)[[1]])
-plot_contrastes_latent_factors <- plot_contrastes_wrapper(factores.df, dir_to_save = directorio_latentes, name_to_save = "contrasts_latent_factors")
+plot_contrastes_latent_factors <- plot_contrastes_wrapper(
+  factores.df,
+  dir_to_save = directorio_latentes,
+  name_to_save = "contrasts_latent_factors",
+  size_text = 12,
+  altura = 10,
+  ancho = 8
+)
 
 # ####====latent correlated clinical=====
 
-plot_clinical_correlated_latent_factors <- fun_dummy_plot_clinical_latent(modelo, dir_to_save =
-                                                                            directorio_latentes , name_to_save = "latent_factors_clinical_correlation")
+plot_clinical_correlated_latent_factors <- fun_dummy_plot_clinical_latent(
+  modelo,
+  dir_to_save =
+    directorio_latentes ,
+  name_to_save = "latent_factors_clinical_correlation",
+  ancho = 18,
+  altura = 8,
+  factor_ = 20,
+  text_size = 15
+  
+)
+
 
 ###====Feature selection #####
 
 ### factores a tener en cuenta para la extraccion
-directorio_feature_selection <- file.path(directorio, "feature_selection_plots")
-if (!dir.exists(directorio_feature_selection)) {
-  dir.create(directorio_feature_selection)
-}
+
+directorio_feature_selection <- file.path(directorio
+                                          , "feature_selection_plots")
+dir_create(directorio_feature_selection)
 threshold <- 0.6
-(
-  p_metaboloma <- plot_weights(modelo, view = 1, factors = 1:2) + geom_vline(xintercept = c(-threshold, threshold))
-)
+(p_metaboloma <- plot_weights(modelo, view = 1, factors = 1) + geom_vline(xintercept = c(-threshold, threshold)))
 
 ggsave(
   plot = p_metaboloma,
@@ -1796,7 +2559,7 @@ ggsave(
   height = 12
 )
 
-(p_proteins <- plot_weights(modelo, view = 3, factors = 2:4) + geom_vline(xintercept = c(-threshold, threshold)))
+(p_proteins <- plot_weights(modelo, view = 3, factors = 2) + geom_vline(xintercept = c(-threshold, threshold)))
 ggsave(
   plot = p_proteins,
   filename = file.path(
@@ -1867,10 +2630,14 @@ modelo_weights_plots_mon <- dummy_plot_weight_factor(modelo = modelo,
                                                      dir_to_save = directorio_weights_plots_mon)
 
 
+
+
+
+
+
 modelo_weights_plots_MOFA <- dummy_plot_weight_factor(modelo = modelo,
                                                       biomarcadores = biomarcadores_MOFA,
                                                       dir_to_save = directorio_weights_plots_MOFA)
-
 # ###======Univariante reconstruccion====#####
 
 R <- reconstruccion(modelo)
@@ -1879,18 +2646,41 @@ R_MOFA <- R[, biomarcadores_MOFA]
 O_MON <- senal_original[, biomarcadores_mon]
 O_MOFA <- senal_original[, biomarcadores_MOFA]
 
-plot_contrastes_wrapper(R_MON,
-                        directorio_mon,
-                        "Reconstructed Signal (Method 2): Contrasts")
-plot_contrastes_wrapper(R_MOFA,
-                        directorio_MOFA,
-                        "Reconstructed Signal (Method MOFA): Contrasts")
-plot_contrastes_wrapper(O_MON,
-                        directorio_original_mon,
-                        "Reconstructed Signal (Method 2): Contrasts")
-plot_contrastes_wrapper(O_MOFA,
-                        directorio_original_MOFA,
-                        "Reconstructed Signal (Method MOFA): Contrasts")
+altura <- 10
+ancho <- 16
+size_text <- 14
+plot_contrastes_wrapper(
+  R_MON,
+  directorio_mon,
+  "Reconstructed Signal (Method 2): Contrasts",
+  altura = altura ,
+  ancho = ancho,
+  size_text = size_text
+)
+plot_contrastes_wrapper(
+  R_MOFA,
+  directorio_MOFA,
+  "Reconstructed Signal (Method MOFA): Contrasts",
+  altura = altura ,
+  ancho = ancho,
+  size_text = size_text
+)
+plot_contrastes_wrapper(
+  O_MON,
+  directorio_original_mon,
+  "Reconstructed Signal (Method 2): Contrasts",
+  altura = altura ,
+  ancho = ancho,
+  size_text = size_text
+)
+plot_contrastes_wrapper(
+  O_MOFA,
+  directorio_original_MOFA,
+  "Reconstructed Signal (Method MOFA): Contrasts",
+  altura = altura ,
+  ancho = ancho,
+  size_text = size_text
+)
 
 ###=========Bivariante reconstruccion=====
 
@@ -1912,21 +2702,47 @@ if (!dir.exists(directorio_original_MOFA_bivariante)) {
   dir.create(directorio_original_MOFA_bivariante)
 }
 
-plot_correlation_wrapper(R = R,
-                         biomarcadores = biomarcadores_mon,
-                         dir_to_save = directorio_bivariante_mon)
-plot_correlation_wrapper(R = senal_original,
-                         biomarcadores = biomarcadores_mon,
-                         dir_to_save = directorio_original_mon_bivariante)
-plot_correlation_wrapper(R = R,
-                         biomarcadores = biomarcadores_MOFA,
-                         dir_to_save = directorio_bivariante_MOFA)
-plot_correlation_wrapper(R = senal_original,
-                         biomarcadores = biomarcadores_MOFA,
-                         dir_to_save = directorio_original_MOFA_bivariante)
+altura <- 23
+anchura <- 23
+size_text <- 20
+clinical_Vars <- get_clinical(modelo)
+colnames.clinical_Vars <- colnames(clinical_Vars)
+R <- reconstruccion(modelo)
+plot_correlation_wrapper(
+  R = cbind(R, clinical_Vars),
+  biomarcadores = c(biomarcadores_mon, colnames.clinical_Vars),
+  dir_to_save = directorio_bivariante_mon,
+  altura = altura,
+  anchura = anchura,
+  text_size = size_text
+)
 
-##======PCA=======
+plot_correlation_wrapper(
+  R = cbind(senal_original, clinical_Vars),
+  biomarcadores = c(biomarcadores_mon, colnames.clinical_Vars),
+  dir_to_save = directorio_original_mon_bivariante,
+  altura = altura,
+  anchura = anchura,
+  text_size = size_text
+)
+plot_correlation_wrapper(
+  R = cbind(R, clinical_Vars),
+  biomarcadores = c(biomarcadores_MOFA, colnames.clinical_Vars),
+  dir_to_save = directorio_bivariante_MOFA,
+  altura = altura,
+  anchura = anchura,
+  text_size = size_text
+)
+plot_correlation_wrapper(
+  R = cbind(senal_original, clinical_Vars),
+  biomarcadores = c(biomarcadores_MOFA, colnames.clinical_Vars),
+  dir_to_save = directorio_original_MOFA_bivariante,
+  altura = altura,
+  anchura = anchura,
+  text_size = size_text
+)
 
+##======PCA dirs=======
 directorio_multivariante_mon <- file.path(directorio_mon, "analisis_multivariante", "Scaled")
 directorio_multivariante_mon_Not_Scaled <- file.path(directorio_mon, "analisis_multivariante", "Not_Scaled")
 
@@ -1942,6 +2758,8 @@ directorio_original_MOFA_multivariante <- file.path(directorio_original_MOFA, "a
 directorio_original_MOFA_multivariante_Not_Scaled  <- file.path(directorio_original_MOFA,
                                                                 "analisis_multivariante",
                                                                 "Not_Scaled")
+
+
 
 
 if (!dir.exists(directorio_multivariante_mon)) {
@@ -1973,88 +2791,161 @@ if (!dir.exists(directorio_original_MOFA_multivariante_Not_Scaled)) {
 }
 
 
-
-
+####======PCA perse=======
+params <- list(
+  text_size = 17,
+  altura = 12,
+  ancho = 15,
+  common_axes = 15,
+  scale_labs = 0.9,
+  legend_size = 0.9,
+  size_points = 5
+)
 
 (
   plot_multivariante_mon_not_scaled <- fun_pca(
-    R = R,
+    R = reconstruccion(modelo),
     biomarcadores = biomarcadores_mon,
     titulo = "PCA: Not Scaled",
     dir_to_save = directorio_multivariante_mon_Not_Scaled,
-    name_to_save = "PCA_NOT_SCALED"
+    name_to_save = "PCA_NOT_SCALED",
+    scalar = F,
+    text_size = params$text_size,
+    altura = params$altura,
+    ancho = params$ancho,
+    common_axes = params$common_axes,
+    scale_labs = params$scale_labs,
+    legend_size = params$legend_size,
+    size_points = params$size_points
   )
 )
 
 (
   plot_multivariante_mon_scaled <- fun_pca(
-    R = scale(R),
+    R =  reconstruccion(modelo),
     biomarcadores = biomarcadores_mon,
     titulo = "PCA: Scaled",
     dir_to_save = directorio_multivariante_mon,
-    name_to_save = "PCA_SCALED"
+    name_to_save = "PCA_SCALED",
+    scalar = T,
+    text_size = params$text_size,
+    altura = params$altura,
+    ancho = params$ancho,
+    common_axes = params$common_axes,
+    scale_labs = params$scale_labs,
+    legend_size = params$legend_size,
+    size_points = params$size_points
+    
   )
 )
 
 
 (
   plot_multivariante_MOFA_not_Scaled <- fun_pca(
-    R = R,
+    R =  reconstruccion(modelo),
     biomarcadores = biomarcadores_MOFA,
     titulo = "PCA: Not Scaled",
     dir_to_save = directorio_multivariante_MOFA_Not_Scaled,
-    name_to_save = "PCA_NOT_SCALED"
+    name_to_save = "PCA_NOT_SCALED",
+    scalar = F,
+    text_size = params$text_size,
+    altura = params$altura,
+    ancho = params$ancho,
+    common_axes = params$common_axes,
+    scale_labs = params$scale_labs,
+    legend_size = params$legend_size,
+    size_points = params$size_points
   )
 )
 
 (
   plot_multivariante_MOFA_Scaled <- fun_pca(
-    R = scale(R),
+    R =  reconstruccion(modelo),
     biomarcadores = biomarcadores_MOFA,
     titulo = "PCA: Scaled",
     dir_to_save = directorio_multivariante_MOFA,
-    name_to_save = "PCA_SCALED"
+    name_to_save = "PCA_SCALED",
+    scalar = T,
+    text_size = params$text_size,
+    altura = params$altura,
+    ancho = params$ancho,
+    common_axes = params$common_axes,
+    scale_labs = params$scale_labs,
+    legend_size = params$legend_size,
+    size_points = params$size_points
   )
 )
 
 
 (
   plot_multivariante_mon_not_Scaled_original <- fun_pca(
-    R = senal_original,
+    R = get_senal_original(modelo),
     biomarcadores = biomarcadores_mon,
     titulo = "PCA: Not Scaled",
     dir_to_save = directorio_original_mon_multivariante_Not_Scaled,
-    name_to_save = "PCA_NOT_SCALED"
+    name_to_save = "PCA_NOT_SCALED",
+    scalar = F,
+    text_size = params$text_size,
+    altura = params$altura,
+    ancho = params$ancho,
+    common_axes = params$common_axes,
+    scale_labs = params$scale_labs,
+    legend_size = params$legend_size,
+    size_points = params$size_points
   )
 )
 
 (
   plot_multivariante_mon_Scaled_original <- fun_pca(
-    R = scale(senal_original),
+    R = get_senal_original(modelo),
     biomarcadores = biomarcadores_mon,
     titulo = "PCA: Scaled",
     dir_to_save = directorio_original_mon_multivariante,
-    name_to_save = "PCA_SCALED"
+    name_to_save = "PCA_SCALED",
+    scalar = T,
+    text_size = params$text_size,
+    altura = params$altura,
+    ancho = params$ancho,
+    common_axes = params$common_axes,
+    scale_labs = params$scale_labs,
+    legend_size = params$legend_size,
+    size_points = params$size_points
   )
 )
 
 (
   plot_multivariante_MOFA_not_Scaled_original <- fun_pca(
-    R = senal_original,
+    R = get_senal_original(modelo),
     biomarcadores = biomarcadores_MOFA,
     titulo = "PCA: Not Scaled",
     dir_to_save = directorio_original_MOFA_multivariante_Not_Scaled,
-    name_to_save = "PCA_NOT_SCALED"
+    name_to_save = "PCA_NOT_SCALED",
+    scalar = F,
+    text_size = params$text_size,
+    altura = params$altura,
+    ancho = params$ancho,
+    common_axes = params$common_axes,
+    scale_labs = params$scale_labs,
+    legend_size = params$legend_size,
+    size_points = params$size_points
   )
 )
 
 (
   plot_multivariante_MOFA_Scaled_original <- fun_pca(
-    R = scale(senal_original),
+    R = get_senal_original(modelo),
     biomarcadores = biomarcadores_MOFA,
     titulo = "PCA: Scaled",
     dir_to_save = directorio_original_MOFA_multivariante,
-    name_to_save = "PCA_SCALED"
+    name_to_save = "PCA_SCALED",
+    scalar = T,
+    text_size = params$text_size,
+    altura = params$altura,
+    ancho = params$ancho,
+    common_axes = params$common_axes,
+    scale_labs = params$scale_labs,
+    legend_size = params$legend_size,
+    size_points = params$size_points
   )
 )
 
@@ -2062,28 +2953,307 @@ if (!dir.exists(directorio_original_MOFA_multivariante_Not_Scaled)) {
 
 ####====Downstream PCA=====
 
-fun_wraper_downstream_PCA(
+
+#####===edmond approx=====
+
+R <- reconstruccion(modelo)
+downstream_pca(
   R,
-  biomarcadores_mon,
-  list(scaled_dir = directorio_multivariante_mon, NOT_scaled_dir = directorio_multivariante_mon_Not_Scaled)
+  biomarcadores = biomarcadores_mon,
+  componente. = 1,
+  escalado = T,
+  common_axes = 18,
+  label_y_Noobese = c(14, 12, 10),
+  label_y_obese = c(12, 8, 5),
+  label_females = 13,
+  label_PCOS = 13,
+  label_men = 12,
+  dir_to_save = directorio_multivariante_mon,
+  altura = 6,
+  ancho = 8,
+  label_group = c(14, 13, 10),
+  label_obesity = c(14, 14)
 )
 
-fun_wraper_downstream_PCA(
+downstream_pca(
   R,
-  biomarcadores_MOFA,
-  list(scaled_dir = directorio_multivariante_MOFA, NOT_scaled_dir = directorio_multivariante_MOFA_Not_Scaled)
+  biomarcadores = biomarcadores_mon,
+  componente. = 2,
+  escalado = T,
+  common_axes = 18,
+  label_y_Noobese = c(17, 13, 13),
+  label_y_obese = c(14, 10, 10),
+  dir_to_save = directorio_multivariante_mon,
+  label_females = 15,
+  label_PCOS = 15,
+  label_men = 15,
+  altura = 6,
+  ancho = 8,
+  label_group = c(15, 13, 10),
+  label_obesity = c(14, 14)
 )
 
-fun_wraper_downstream_PCA(
-  senal_original,
-  biomarcadores_mon,
-  list(scaled_dir = directorio_original_mon_multivariante, NOT_scaled_dir = directorio_original_mon_multivariante_Not_Scaled)
+downstream_pca(
+  R,
+  biomarcadores = biomarcadores_mon,
+  componente. = 1,
+  escalado = F,
+  common_axes = 18,
+  label_y_Noobese = c(12, 16, 10),
+  label_y_obese = c(12, 8, 5),
+  label_females = 12,
+  label_PCOS = 12,
+  label_men = 12,
+  dir_to_save = directorio_multivariante_mon_Not_Scaled,
+  altura = 6,
+  ancho = 8,
+  label_group = c(16, 13, 10),
+  label_obesity = c(14, 14)
 )
 
-fun_wraper_downstream_PCA(
-  senal_original,
-  biomarcadores_mon,
-  list(scaled_dir = directorio_multivariante_mon, NOT_scaled_dir = directorio_multivariante_mon_Not_Scaled)
+downstream_pca(
+  R,
+  biomarcadores = biomarcadores_mon,
+  componente. = 2,
+  escalado = F,
+  common_axes = 18,
+  label_y_Noobese = c(10, 11, 13),
+  label_y_obese = c(10, 8, 10),
+  dir_to_save = directorio_multivariante_mon_Not_Scaled,
+  label_females = 15,
+  label_PCOS = 15,
+  label_men = 15,
+  altura = 6,
+  ancho = 8,
+  label_group = c(16, 13, 10),
+  label_obesity = c(14, 14)
+)
+
+#####====MOFA approex =====
+
+downstream_pca(
+  R,
+  biomarcadores = biomarcadores_MOFA,
+  componente. = 1,
+  escalado = T,
+  common_axes = 18,
+  label_y_Noobese = c(10, 15, 8),
+  label_y_obese = c(10, 15, 5),
+  label_females = 12,
+  label_PCOS = 12,
+  label_men = 12,
+  dir_to_save = directorio_multivariante_MOFA,
+  altura = 6,
+  ancho = 8,
+  label_group = c(16, 13, 10),
+  label_obesity = c(14, 14)
+)
+
+downstream_pca(
+  R,
+  biomarcadores = biomarcadores_MOFA,
+  componente. = 2,
+  escalado = T,
+  common_axes = 18,
+  label_y_Noobese = c(17, 11, 13),
+  label_y_obese = c(14, 8, 10),
+  dir_to_save = directorio_multivariante_MOFA,
+  label_females = 15,
+  label_PCOS = 15,
+  label_men = 15,
+  altura = 6,
+  ancho = 8,
+  label_group = c(16, 13, 10),
+  label_obesity = c(14, 14)
+)
+
+downstream_pca(
+  R,
+  biomarcadores = biomarcadores_MOFA,
+  componente. = 1,
+  escalado = F,
+  common_axes = 18,
+  label_y_Noobese = c(12, 16, 10),
+  label_y_obese = c(12, 16, 5),
+  label_females = 12,
+  label_PCOS = 12,
+  label_men = 12,
+  dir_to_save = directorio_multivariante_MOFA_Not_Scaled,
+  altura = 6,
+  ancho = 8,
+  label_group = c(16, 13, 10),
+  label_obesity = c(14, 14)
+)
+
+downstream_pca(
+  R,
+  biomarcadores = biomarcadores_MOFA,
+  componente. = 2,
+  escalado = F,
+  common_axes = 17,
+  label_y_Noobese = c(16, 11, 13),
+  label_y_obese = c(14, 8, 10),
+  dir_to_save = directorio_multivariante_MOFA_Not_Scaled,
+  label_females = 15,
+  label_PCOS = 15,
+  label_men = 15,
+  altura = 6,
+  ancho = 8,
+  label_group = c(16, 13, 10),
+  label_obesity = c(14, 14)
+)
+
+
+
+
+
+#####=== Original edmond approx=====
+
+S <- get_senal_original(modelo)
+downstream_pca(
+  S,
+  biomarcadores = biomarcadores_mon,
+  componente. = 1,
+  escalado = T,
+  common_axes = 18,
+  label_y_Noobese = c(12, 17, 10),
+  label_y_obese = c(12, 8, 5),
+  label_females = 12,
+  label_PCOS = 12,
+  label_men = 12,
+  dir_to_save = directorio_original_mon_multivariante,
+  altura = 6,
+  ancho = 8,
+  label_group = c(16, 13, 10),
+  label_obesity = c(14, 14)
+)
+
+downstream_pca(
+  S,
+  biomarcadores = biomarcadores_mon,
+  componente. = 2,
+  escalado = T,
+  common_axes = 18,
+  label_y_Noobese = c(14, 9, 13),
+  label_y_obese = c(14, 8, 10),
+  dir_to_save = directorio_original_mon_multivariante,
+  label_females = 15,
+  label_PCOS = 15,
+  label_men = 15,
+  altura = 6,
+  ancho = 8,
+  label_group = c(16, 13, 10),
+  label_obesity = c(14, 14)
+)
+
+downstream_pca(
+  S,
+  biomarcadores = biomarcadores_mon,
+  componente. = 1,
+  escalado = F,
+  common_axes = 18,
+  label_y_Noobese = c(12, 16, 10),
+  label_y_obese = c(12, 8, 5),
+  label_females = 12,
+  label_PCOS = 12,
+  label_men = 12,
+  dir_to_save = directorio_original_mon_multivariante_Not_Scaled,
+  altura = 6,
+  ancho = 8,
+  label_group = c(16, 13, 10),
+  label_obesity = c(14, 14)
+)
+
+downstream_pca(
+  S,
+  biomarcadores = biomarcadores_mon,
+  componente. = 2,
+  escalado = F,
+  common_axes = 18,
+  label_y_Noobese = c(16, 11, 13),
+  label_y_obese = c(14, 8, 10),
+  dir_to_save = directorio_original_mon_multivariante_Not_Scaled,
+  label_females = 15,
+  label_PCOS = 15,
+  label_men = 15,
+  altura = 6,
+  ancho = 8,
+  label_group = c(16, 13, 10),
+  label_obesity = c(14, 14)
+)
+
+#####==== Original MOFA approex =====
+
+downstream_pca(
+  S,
+  biomarcadores = biomarcadores_MOFA,
+  componente. = 1,
+  escalado = T,
+  common_axes = 18,
+  label_y_Noobese = c(8, 16, 10),
+  label_y_obese = c(10, 16, 5),
+  label_females = 12,
+  label_PCOS = 12,
+  label_men = 12,
+  dir_to_save = directorio_original_MOFA_multivariante,
+  altura = 6,
+  ancho = 8,
+  label_group = c(16, 13, 10),
+  label_obesity = c(14, 14)
+)
+
+downstream_pca(
+  S,
+  biomarcadores = biomarcadores_MOFA,
+  componente. = 2,
+  escalado = T,
+  common_axes = 18,
+  label_y_Noobese = c(16, 11, 13),
+  label_y_obese = c(14, 8, 10),
+  dir_to_save = directorio_original_MOFA_multivariante,
+  label_females = 15,
+  label_PCOS = 15,
+  label_men = 15,
+  altura = 6,
+  ancho = 8,
+  label_group = c(16, 13, 10),
+  label_obesity = c(14, 14)
+)
+
+downstream_pca(
+  S,
+  biomarcadores = biomarcadores_MOFA,
+  componente. = 1,
+  escalado = F,
+  common_axes = 18,
+  label_y_Noobese = c(12, 16, 10),
+  label_y_obese = c(8, 12, 5),
+  label_females = 12,
+  label_PCOS = 12,
+  label_men = 12,
+  dir_to_save = directorio_original_MOFA_multivariante_Not_Scaled,
+  altura = 6,
+  ancho = 8,
+  label_group = c(16, 13, 10),
+  label_obesity = c(14, 14)
+)
+
+downstream_pca(
+  S,
+  biomarcadores = biomarcadores_MOFA,
+  componente. = 2,
+  escalado = F,
+  common_axes = 18,
+  label_y_Noobese = c(17, 11, 13),
+  label_y_obese = c(14, 8, 10),
+  dir_to_save = directorio_original_MOFA_multivariante_Not_Scaled,
+  label_females = 15,
+  label_PCOS = 15,
+  label_men = 15,
+  altura = 6,
+  ancho = 8,
+  label_group = c(16, 13, 10),
+  label_obesity = c(14, 14)
 )
 
 
@@ -2096,7 +3266,12 @@ plots_mon_scaled <- wrapper_plot_contribuciones(
   dir_to_save = directorio_multivariante_mon,
   original = F,
   grupo = grupo,
-  obesidad = obesidad
+  obesidad = obesidad,
+  common_axes = 18,
+  text_size = 15,
+  altura = 17,
+  ancho = 16
+  
 )
 
 plots_mon_NOT_scaled <- wrapper_plot_contribuciones(
@@ -2106,7 +3281,11 @@ plots_mon_NOT_scaled <- wrapper_plot_contribuciones(
   dir_to_save = directorio_multivariante_mon_Not_Scaled,
   original = F,
   grupo = grupo,
-  obesidad = obesidad
+  obesidad = obesidad,
+  common_axes = 18,
+  text_size = 15,
+  altura = 17,
+  ancho = 16
 )
 
 
@@ -2117,7 +3296,11 @@ plots_MOFA_scaled <- wrapper_plot_contribuciones(
   dir_to_save = directorio_multivariante_MOFA,
   original = F,
   grupo = grupo,
-  obesidad = obesidad
+  obesidad = obesidad,
+  common_axes = 18,
+  text_size = 15,
+  altura = 17,
+  ancho = 16
 )
 
 
@@ -2128,7 +3311,11 @@ plots_MOFA_NOT_scaled <- wrapper_plot_contribuciones(
   dir_to_save = directorio_multivariante_MOFA_Not_Scaled,
   original = F,
   grupo = grupo,
-  obesidad = obesidad
+  obesidad = obesidad,
+  common_axes = 18,
+  text_size = 15,
+  altura = 17,
+  ancho = 16
 )
 
 plots_original_mon_scaled <- wrapper_plot_contribuciones(
@@ -2138,7 +3325,11 @@ plots_original_mon_scaled <- wrapper_plot_contribuciones(
   dir_to_save = directorio_original_mon_multivariante,
   original = T,
   grupo = grupo,
-  obesidad = obesidad
+  obesidad = obesidad,
+  common_axes = 18,
+  text_size = 15,
+  altura = 17,
+  ancho = 16
 )
 
 
@@ -2149,7 +3340,11 @@ plots_original_mon_not_Scaled <- wrapper_plot_contribuciones(
   dir_to_save = directorio_original_mon_multivariante_Not_Scaled,
   original = T,
   grupo = grupo,
-  obesidad = obesidad
+  obesidad = obesidad,
+  common_axes = 18,
+  text_size = 15,
+  altura = 17,
+  ancho = 16
 )
 
 
@@ -2160,7 +3355,11 @@ plots_original_MOFA <- wrapper_plot_contribuciones(
   dir_to_save = directorio_original_MOFA_multivariante,
   original = T,
   grupo = grupo,
-  obesidad = obesidad
+  obesidad = obesidad,
+  common_axes = 18,
+  text_size = 15,
+  altura = 17,
+  ancho = 16
 )
 
 
@@ -2171,8 +3370,183 @@ plots_original_MOFA_not_Scaled <- wrapper_plot_contribuciones(
   dir_to_save = directorio_original_MOFA_multivariante_Not_Scaled,
   original = T,
   grupo = grupo,
-  obesidad = obesidad
+  obesidad = obesidad,
+  common_axes = 18,
+  text_size = 15,
+  altura = 17,
+  ancho = 16
 )
 ### Correlacionamos los biomarcadores reconstruidos, con los scores, pero
 ### para tener mejor inciso, correlacionamos aquellos scores correspondinetes a
 ### al grupo de interes: cor(scores[mujeres,] ,senal[mujeres,])
+
+##====contribuciones generales====
+R <- reconstruccion(modelo)
+plot_contributions_general(
+  R = R,
+  biomarcadores = biomarcadores_mon,
+  escalado = T,
+  componente = 1,
+  text_size = 16,
+  dir_to_save = directorio_multivariante_mon,
+  altura = 18,
+  ancho = 15
+)
+plot_contributions_general(
+  R = R,
+  biomarcadores = biomarcadores_mon,
+  escalado = T,
+  componente = 2,
+  text_size = 16,
+  dir_to_save = directorio_multivariante_mon,
+  altura = 18,
+  ancho = 15
+)
+
+plot_contributions_general(
+  R = R,
+  biomarcadores = biomarcadores_mon,
+  escalado = F,
+  componente = 1,
+  text_size = 14,
+  dir_to_save = directorio_multivariante_mon_Not_Scaled,
+  altura = 15,
+  ancho = 15
+)
+plot_contributions_general(
+  R = R,
+  biomarcadores = biomarcadores_mon,
+  escalado = F,
+  componente = 2,
+  text_size = 14,
+  dir_to_save = directorio_multivariante_mon_Not_Scaled,
+  altura = 15,
+  ancho = 15
+)
+
+plot_contributions_general(
+  R = R,
+  biomarcadores = biomarcadores_MOFA,
+  escalado = T,
+  componente = 1,
+  text_size = 14,
+  dir_to_save = directorio_multivariante_MOFA,
+  altura = 15,
+  ancho = 15
+)
+plot_contributions_general(
+  R = R,
+  biomarcadores = biomarcadores_MOFA,
+  escalado = T,
+  componente = 2,
+  text_size = 14,
+  dir_to_save = directorio_multivariante_MOFA,
+  altura = 15,
+  ancho = 15
+)
+
+plot_contributions_general(
+  R = R,
+  biomarcadores = biomarcadores_MOFA,
+  escalado = F,
+  componente = 1,
+  text_size = 14,
+  dir_to_save = directorio_multivariante_MOFA_Not_Scaled,
+  altura = 15,
+  ancho = 15
+)
+plot_contributions_general(
+  R = R,
+  biomarcadores = biomarcadores_MOFA,
+  escalado = F,
+  componente = 2,
+  text_size = 14,
+  dir_to_save = directorio_multivariante_MOFA_Not_Scaled,
+  altura = 15,
+  ancho = 15
+)
+
+S <- get_senal_original(modelo)
+plot_contributions_general(
+  R = S,
+  biomarcadores = biomarcadores_mon,
+  escalado = T,
+  componente = 1,
+  text_size = 14,
+  dir_to_save = directorio_original_mon_multivariante,
+  altura = 15,
+  ancho = 15
+)
+plot_contributions_general(
+  R = S,
+  biomarcadores = biomarcadores_mon,
+  escalado = T,
+  componente = 2,
+  text_size = 14,
+  dir_to_save = directorio_original_mon_multivariante,
+  altura = 15,
+  ancho = 15
+)
+
+plot_contributions_general(
+  R = S,
+  biomarcadores = biomarcadores_mon,
+  escalado = F,
+  componente = 1,
+  text_size = 14,
+  dir_to_save = directorio_original_mon_multivariante_Not_Scaled,
+  altura = 15,
+  ancho = 15
+)
+plot_contributions_general(
+  R = S,
+  biomarcadores = biomarcadores_mon,
+  escalado = F,
+  componente = 2,
+  text_size = 14,
+  dir_to_save = directorio_original_mon_multivariante_Not_Scaled,
+  altura = 15,
+  ancho = 15
+)
+
+plot_contributions_general(
+  R = S,
+  biomarcadores = biomarcadores_MOFA,
+  escalado = T,
+  componente = 1,
+  text_size = 14,
+  dir_to_save = directorio_original_MOFA_multivariante,
+  altura = 15,
+  ancho = 15
+)
+plot_contributions_general(
+  R = S,
+  biomarcadores = biomarcadores_MOFA,
+  escalado = T,
+  componente = 2,
+  text_size = 14,
+  dir_to_save = directorio_original_MOFA_multivariante,
+  altura = 15,
+  ancho = 15
+)
+
+plot_contributions_general(
+  R = S,
+  biomarcadores = biomarcadores_MOFA,
+  escalado = F,
+  componente = 1,
+  text_size = 14,
+  dir_to_save = directorio_original_MOFA_multivariante_Not_Scaled,
+  altura = 15,
+  ancho = 15
+)
+plot_contributions_general(
+  R = S,
+  biomarcadores = biomarcadores_MOFA,
+  escalado = F,
+  componente = 2,
+  text_size = 14,
+  dir_to_save = directorio_original_MOFA_multivariante_Not_Scaled,
+  altura = 15,
+  ancho = 15
+)
