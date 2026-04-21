@@ -17,7 +17,7 @@ library(cowplot)
 library(ggsignif)
 library(rlang)
 
-datos <- readRDS("../datos/preprocesado_08_09_23/novoom-04-10-23.rds")
+datos <- readRDS("../datos/preprocesado_08_09_23-26/novoom.rds")
 
 obesidad <- datos$comunes$obesidad
 grupo <- datos$comunes$grupo
@@ -1072,6 +1072,8 @@ fun_plot_dummy_preliminar <- function(modelo,
                                       ancho,
                                       size_var,
                                       size_Axis) {
+
+  
   data.variance_explained <- get_variance_explained(modelo)
   data.variance_explained <- as.data.frame(data.variance_explained$r2_per_factor$group1)
   data.variance_explained$Factors <- rownames(data.variance_explained)
@@ -1105,8 +1107,8 @@ fun_plot_dummy_preliminar <- function(modelo,
   
   # Preparar datos para el barplot
   bar_data <- data.melt %>%
-    group_by(variable) %>%
-    summarise(Total = sum(value))
+    dplyr::group_by(variable) %>%
+    dplyr::summarise(Total = sum(value))
   levels(bar_data$variable) <- c("Metabolome", "Microbiome", "Proteins")
   # Crear el barplot
   p2 <- ggbarplot(bar_data,
@@ -1275,7 +1277,7 @@ plot_correlation_wrapper <- function(R,
     "Obese",
     "No Obese",
     "Control Women",
-    "Male",
+    "Men",
     "PCOS",
     "Male: No Obese",
     "Male: Obese",
@@ -1402,7 +1404,7 @@ downstream_pca <- function(R,
     add = c("jitter", "mean")
   ) +
     scale_color_manual(values = c("No.Obese" = "lightblue", "Obese" = "blue")) +
-    ylab("") + xlab(PCs_y) +
+    ylab(PCs_y) + xlab("")+
     theme(legend.position = "none") +
     ylim(-common_axes, common_axes) +
     theme(title = element_text(size = 10), axis.text = element_text(size = 10)) +
@@ -1445,7 +1447,7 @@ downstream_pca <- function(R,
           "Men" = "red3"
         )
       ) +
-      ylab("") + xlab(PCs_y) +
+      ylab(PCs_y) + xlab("")+
       theme(legend.position = "none") +
       ylim(-common_axes, common_axes) +
       theme(title = element_text(size = 10), axis.text = element_text(size = 10)) +
@@ -1562,7 +1564,7 @@ downstream_pca <- function(R,
       "No.Obese" = "chartreuse",
       "Obese" = "chartreuse4"
     )) +
-    labs(title = "Females", x = "", y = PCs_y) + theme(
+    labs(title = "Control Women", x = "", y = PCs_y) + theme(
       panel.background = element_rect(fill = "white", color = NA),
       # Fondo blanco
       panel.grid = element_blank(),
@@ -1999,7 +2001,10 @@ plot_contributions <- function(R,
   
   p_complete <- ggarrange(p_contrib, p_score)
   
-  return(p_complete)
+  retorno <- list(p_complete = p_complete,csv_to_save = r)
+
+  return(retorno)
+  
 }
 
 
@@ -2065,11 +2070,12 @@ wrapper_plot_contribuciones <- function(modelo,
     common_axes = common_axes
   )
   ggsave(
-    plot = obesidad_PC1,
+    plot = obesidad_PC1$p_complete,
     filename = file.path(dir_to_save, "PC1_Obese_vs_No_Obese.jpeg"),
     height = altura,
     width = ancho
   )
+  write.csv(obesidad_PC1$csv_to_save,file = file.path(dir_to_save, "PC1_Obese_vs_No_Obese.csv"))
   
   obesidad_PC2 <- plot_contributions(
     R = R,
@@ -2084,11 +2090,13 @@ wrapper_plot_contribuciones <- function(modelo,
     common_axes = common_axes
   )
   ggsave(
-    plot = obesidad_PC2,
+    plot = obesidad_PC2$p_complete,
     filename = file.path(dir_to_save, "PC2_Obese_vs_No_Obese.jpeg"),
     height = altura,
     width = ancho
   )
+  write.csv(obesidad_PC2$csv_to_save,file = file.path(dir_to_save, "PC2_Obese_vs_No_Obese.jpeg"))
+  
   # colores <- ifelse(plotdf$subjects == "Control Women: No Obese", "chartreuse", NA)
   # colores <- ifelse(plotdf$subjects == "PCOS: No Obese", "gold3", colores)
   # colores <- ifelse(plotdf$subjects == "Men: No Obese", "red", colores)
@@ -2150,6 +2158,14 @@ wrapper_plot_contribuciones <- function(modelo,
   
   plots_PC2s <- vector("list", length = length(names(dum_contrastes$factores)))
   names(plots_PC2s) <- names(dum_contrastes$factores)
+  
+  files_PC1s <- vector("list", length = length(names(dum_contrastes$factores)))
+  names(files_PC1s) <- names(dum_contrastes$factores)
+  
+  files_PC2s <- vector("list", length = length(names(dum_contrastes$factores)))
+  names(files_PC2s) <- names(dum_contrastes$factores)
+  
+  
   for (pl in 1:length(names(dum_contrastes$factores))) {
     plot_PC1 <- plot_contributions(
       R = R,
@@ -2175,8 +2191,11 @@ wrapper_plot_contribuciones <- function(modelo,
       text.size = text_size,
       common_axes = common_axes
     )
-    plots_PC1s[[pl]] <- plot_PC1
-    plots_PC2s[[pl]] <- plot_PC2
+    plots_PC1s[[pl]] <- plot_PC1$p_complete
+    plots_PC2s[[pl]] <- plot_PC2$p_complete
+    
+    files_PC1s[[pl]] <- plot_PC1$csv_to_save
+    files_PC2s[[pl]] <- plot_PC2$csv_to_save
   }
   
   titulos_to_Save <- c(
@@ -2214,6 +2233,7 @@ wrapper_plot_contribuciones <- function(modelo,
       height = altura,
       width = ancho
     )
+    write.csv(x = files_PC1s[[pl]],file = file.path(dir_to_save_pl_PC1, paste0(titulos_to_Save[pl], ".csv")))
     
     ggsave(
       plot = plots_PC2s[[pl]],
@@ -2221,6 +2241,8 @@ wrapper_plot_contribuciones <- function(modelo,
       height = altura,
       width = ancho
     )
+    
+    write.csv(x = files_PC2s[[pl]],file = file.path(dir_to_save_pl_PC2, paste0(titulos_to_Save[pl], ".csv")))
     
   }
   
@@ -2430,7 +2452,7 @@ plot_contributions_general <- function(R,
   return(return_plots)
 }
 ###===Cargamos modelo ====
-modelos <- lapply(list.files("./modelos/14_10_24_With_OUTLIERS/", full.names = T),
+modelos <- lapply(list.files("./modelos/14_10_24_With_OUTLIERS-17-04-26/", full.names = T),
                   load_model)
 modelo <- MOFA2::select_model(modelos, plot = T)
 senal_original <- get_senal_original(modelo)
@@ -2475,7 +2497,7 @@ senal_reconstruida <- reconstruccion(modelo)
 
 ###===Graficos preliminares====
 
-directorio <- "./resultados/30_1-12-24"
+directorio <- "./resultados/21-01-25"
 
 
 
@@ -2703,8 +2725,8 @@ if (!dir.exists(directorio_original_MOFA_bivariante)) {
 }
 
 altura <- 23
-anchura <- 23
-size_text <- 20
+anchura <- 24
+size_text <- 18
 clinical_Vars <- get_clinical(modelo)
 colnames.clinical_Vars <- colnames(clinical_Vars)
 R <- reconstruccion(modelo)
@@ -2796,7 +2818,7 @@ params <- list(
   text_size = 17,
   altura = 12,
   ancho = 15,
-  common_axes = 15,
+  common_axes = 18,
   scale_labs = 0.9,
   legend_size = 0.9,
   size_points = 5
@@ -3540,6 +3562,7 @@ plot_contributions_general(
   altura = 15,
   ancho = 15
 )
+
 plot_contributions_general(
   R = S,
   biomarcadores = biomarcadores_MOFA,
