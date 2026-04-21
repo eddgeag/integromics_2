@@ -73,3 +73,9 @@ It remains a useful reference for:
 * deriving hypotheses for more advanced models.
 
 ---
+
+## Final scripts for reproducible research
+
+* load_and_preprocess.R
+* integration.R
+* new_Downstream.R
