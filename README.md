@@ -12,6 +12,7 @@ It focuses on the **integrative analysis of Polycystic Ovary Syndrome (PCOS)** u
 The goal of this project is **inferential and exploratory multi-omic characterisation**, rather than biomarker discovery.
 It documents the early development of modelling strategies, data harmonization, and cross-omics inference that later evolved into more structured frameworks (e.g., *metatest_final*).
 
+Multi-omics factor analysis v2 (MOFA+) reveals specific co-variation patterns in women with PMOS that are strongly influenced by obesity Edmond Géraud-Aguilar , M Ángeles Martínez-García , María Insenser , Susana Barceló-Cerdá , Manuel Luque-Ramírez , Francisco García-García , Héctor F Escobar-Morreal
 https://academic.oup.com/hropen/article/2026/4/hoag080/8788611
 
 
